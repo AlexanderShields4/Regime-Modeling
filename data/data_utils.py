@@ -20,7 +20,31 @@ STOCK_TICKERS = [
     "TM", "NSRGY", "BABA", "TSM", "RIO", "SAP"
 ]
 
-# ====== FETCH FUNCTIONS ======
+# ====== INDEX TICKERS ======
+INDEX_TICKERS = [
+    "^GSPC",  # S&P 500
+    "^IXIC",  # NASDAQ
+    "^DJI",   # Dow Jones
+    "^RUT",   # Russell 2000
+    "^VIX",   # VIX
+    "^FTSE",  # FTSE 100
+    "^N225",  # Nikkei 225
+    "^HSI",   # Hang Seng
+]
+
+# ====== NATURAL RESOURCES TICKERS ======
+NATURAL_RESOURCES_TICKERS = [
+    # Energy
+    "XOM", "CVX", "BP", "COP", "SLB", "EOG", "PXD", "MPC", "PSX", "VLO",
+    # Metals & Mining
+    "FCX", "NEM", "ABX", "RIO", "BHP", "VALE", "AA", "CLF",
+    # Agriculture
+    "ADM", "BG", "TSN", "CAG", "MOS", "CF", "IP", "WY",
+    # Commodities (ETFs)
+    "GLD", "SLV", "USO", "UNG", "CORN", "WEAT", "SOYB"
+]
+
+# ====== FETCH FUNCTIONS ====== 
 def _fetch_data(tickers, period="1y", interval="1d"):
     """Helper to download and format data from Yahoo Finance."""
     data = yf.download(
@@ -38,4 +62,14 @@ def _fetch_data(tickers, period="1y", interval="1d"):
 def get_individual_stocks(tickers=None, period="1y", interval="1d"):
     """Fetch historical data for multiple individual stocks."""
     tickers = tickers or STOCK_TICKERS
+    return _fetch_data(tickers, period, interval)
+
+def get_indices(tickers=None, period="1y", interval="1d"):
+    """Fetch historical data for multiple market indices."""
+    tickers = tickers or INDEX_TICKERS
+    return _fetch_data(tickers, period, interval)
+
+def get_natural_resources(tickers=None, period="1y", interval="1d"):
+    """Fetch historical data for natural resources and commodities."""
+    tickers = tickers or NATURAL_RESOURCES_TICKERS
     return _fetch_data(tickers, period, interval)
