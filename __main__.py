@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
 
-
+# Regime-Modeling/__main__.py
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import data loaders
 from data.ind_stocks import load_individual_stocks
