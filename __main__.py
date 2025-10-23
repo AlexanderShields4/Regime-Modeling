@@ -22,4 +22,3 @@ Welcome to the Market Data Dashboard! This app provides insights into market dat
 
 Use the sidebar to navigate to different pages for detailed analysis.
 """)
-
