@@ -35,9 +35,9 @@ INDEX_TICKERS = [
 # ====== NATURAL RESOURCES TICKERS ======
 NATURAL_RESOURCES_TICKERS = [
     # Energy
-    "XOM", "CVX", "BP", "COP", "SLB", "EOG", "PXD", "MPC", "PSX", "VLO",
+    "XOM", "CVX", "BP", "COP", "SLB", "EOG", "MPC", "PSX", "VLO",
     # Metals & Mining
-    "FCX", "NEM", "ABX", "RIO", "BHP", "VALE", "AA", "CLF",
+    "FCX", "NEM", "RIO", "BHP", "VALE", "AA", "CLF", "AGI"
     # Agriculture
     "ADM", "BG", "TSN", "CAG", "MOS", "CF", "IP", "WY",
     # Commodities (ETFs)
@@ -73,3 +73,22 @@ def get_natural_resources(tickers=None, period="1y", interval="1d"):
     """Fetch historical data for natural resources and commodities."""
     tickers = tickers or NATURAL_RESOURCES_TICKERS
     return _fetch_data(tickers, period, interval)
+
+def get_volume_data(tickers=None, period="1y", interval="1d"):
+    """Fetch volume data for multiple tickers."""
+    tickers = tickers or STOCK_TICKERS
+    data = yf.download(
+        tickers=tickers,
+        period=period,
+        interval=interval,
+        group_by="ticker",
+        auto_adjust=True,
+        progress=False
+    )
+    df = pd.concat({ticker: data[ticker]["Volume"] for ticker in tickers if ticker in data}, axis=1)
+    df.index.name = "Date"
+    return df
+
+def calculate_moving_averages(df, window=20):
+    """Calculate moving averages for a given DataFrame."""
+    return df.rolling(window=window).mean()

@@ -3,6 +3,8 @@ from .data_utils import (
     get_individual_stocks,
     get_indices,
     get_natural_resources,
+    get_volume_data,
+    calculate_moving_averages,
     STOCK_TICKERS,
     INDEX_TICKERS,
     NATURAL_RESOURCES_TICKERS
@@ -16,6 +18,8 @@ __all__ = [
     'get_individual_stocks',
     'get_indices',
     'get_natural_resources',
+    'get_volume_data',
+    'calculate_moving_averages',
     'load_individual_stocks',
     'load_indices',
     'load_resources',
