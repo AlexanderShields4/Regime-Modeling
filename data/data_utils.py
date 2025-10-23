@@ -37,7 +37,7 @@ NATURAL_RESOURCES_TICKERS = [
     # Energy
     "XOM", "CVX", "BP", "COP", "SLB", "EOG", "MPC", "PSX", "VLO",
     # Metals & Mining
-    "FCX", "NEM", "RIO", "BHP", "VALE", "AA", "CLF", "AGI"
+    "FCX", "NEM", "RIO", "BHP", "VALE", "AA", "CLF", "AGI",
     # Agriculture
     "ADM", "BG", "TSN", "CAG", "MOS", "CF", "IP", "WY",
     # Commodities (ETFs)
@@ -92,38 +92,3 @@ def get_volume_data(tickers=None, period="1y", interval="1d"):
 def calculate_moving_averages(df, window=20):
     """Calculate moving averages for a given DataFrame."""
     return df.rolling(window=window).mean()
-
-
-def calculate_moving_average_mse(df, window=20):
-    """Calculate the rolling mean squared error (MSE) between actual prices
-    and their moving average over a sliding window.
-
-    For each column (ticker) this returns a DataFrame containing the rolling
-    MSE computed over `window` days. The computation follows these steps:
-      1. Compute the rolling moving average (MA) with the given window.
-      2. Compute the squared error between the actual price and the MA.
-      3. Compute the rolling mean of those squared errors over the same window.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame of closing prices with Date index and tickers as columns.
-    window : int, optional
-        Window size in days for the moving average and MSE (default is 20).
-
-    Returns
-    -------
-    pandas.DataFrame
-        DataFrame of the same shape as `df` containing the rolling MSE. The
-        first ``window-1`` rows will be NaN because of insufficient data.
-    """
-    # moving average for each column
-    ma = calculate_moving_averages(df, window=window)
-
-    # squared errors between actual prices and their moving average
-    squared_errors = (df - ma) ** 2
-
-    # rolling mean of squared errors -> MSE for each window
-    mse = squared_errors.rolling(window=window).mean()
-
-    return mse

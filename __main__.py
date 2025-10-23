@@ -4,7 +4,7 @@ import streamlit as st
 from data.ind_stocks import load_individual_stocks
 from data.indices import load_indices
 from data.natural_resources import load_resources
-from pages.pages_utils import fetch_all_data
+from pages_utils import fetch_all_data
 
 # ========== Streamlit App ==========
 st.set_page_config(page_title="Market Dashboard", layout="wide")

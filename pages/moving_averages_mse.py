@@ -1,7 +1,7 @@
 import streamlit as st
 from pages_utils import fetch_all_data
 import pandas as pd
-from data.data_utils import calculate_moving_average_mse
+from pages_utils import calculate_moving_averages
 
 # ========== Moving Averages MSE Page ==========
 st.title("📉 Moving Averages MSE")
@@ -27,7 +27,7 @@ selected_window = st.sidebar.slider("Select moving average window:", min_value=5
 df_to_display = data[view_option.lower()][selected_tickers]
 
 # Calculate rolling MSE using the util
-mse_df = calculate_moving_average_mse(df_to_display, window=selected_window)
+mse_df = calculate_moving_averages(df_to_display, window=selected_window)
 
 st.line_chart(mse_df)
 
