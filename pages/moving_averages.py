@@ -1,6 +1,7 @@
 import streamlit as st
-from pages_utils import fetch_all_data
-import pandas as pd
+from pages_utils import fetch_all_data, calculate_moving_averages
+
+data = fetch_all_data()
 
 # ========== Moving Averages Page ==========
 st.title("📉 Moving Averages")
@@ -8,8 +9,6 @@ st.title("📉 Moving Averages")
 # Sidebar controls
 st.sidebar.header("Moving Averages Settings")
 st.sidebar.write("Select options for moving averages visualization.")
-
-data = fetch_all_data()
 
 view_option = st.sidebar.selectbox("Choose dataset:", ["Stocks", "Indices", "Resources"])
 selected_tickers = st.sidebar.multiselect(
@@ -20,10 +19,6 @@ selected_tickers = st.sidebar.multiselect(
 
 # Main content
 st.subheader(f"{view_option} Moving Averages")
-
-# Calculate moving averages
-def calculate_moving_averages(df, window=20):
-    return df.rolling(window=window).mean()
 
 selected_window = st.sidebar.slider("Select moving average window:", min_value=5, max_value=50, value=20)
 df_to_display = data[view_option.lower()][selected_tickers]

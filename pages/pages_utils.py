@@ -17,3 +17,8 @@ def fetch_all_data():
         "indices": indices_df,
         "resources": resources_df
     }
+
+# ========== Moving Averages Calculation ==========
+def calculate_moving_averages(df, window=20):
+    """Calculate moving averages for a given DataFrame."""
+    return df.rolling(window=window).mean()
