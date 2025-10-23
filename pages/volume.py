@@ -1,5 +1,5 @@
 import streamlit as st
-from .pages_utils import fetch_all_data
+from pages_utils import fetch_all_data
 
 data = fetch_all_data()
 

@@ -22,3 +22,12 @@ def fetch_all_data():
 def calculate_moving_averages(df, window=20):
     """Calculate moving averages for a given DataFrame."""
     return df.rolling(window=window).mean()
+
+
+def calculate_moving_average_mse(df, window=20):
+    """Wrapper that delegates to data.data_utils.calculate_moving_average_mse.
+
+    This keeps the default window consistent across pages.
+    """
+    from data.data_utils import calculate_moving_average_mse as _mse
+    return _mse(df, window=window)

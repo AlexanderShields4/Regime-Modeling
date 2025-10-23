@@ -1,7 +1,7 @@
 import streamlit as st
 from pages_utils import fetch_all_data
 import pandas as pd
-from data.data_utils import calculate_moving_average_mse
+from data.data_utils import calculate_moving_average_mse, calculate_moving_averages
 
 # ========== Moving Averages MSE Page ==========
 st.title("📉 Moving Averages MSE")
