@@ -45,7 +45,7 @@ NATURAL_RESOURCES_TICKERS = [
 ]
 
 # ====== FETCH FUNCTIONS ====== 
-def _fetch_data(tickers, period="1y", interval="1d"):
+def _fetch_data(tickers: list[str], period:str="1y", interval: str="1d") -> pd.DataFrame:
     """Helper to download and format data from Yahoo Finance."""
     data = yf.download(
         tickers=tickers,
