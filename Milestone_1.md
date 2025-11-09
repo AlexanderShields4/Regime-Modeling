@@ -52,39 +52,4 @@ Plot of a Stock from each category over one year
 The data has many small fluctuations and few large fluctuations. We are trying to predict the type of economy bull versus bear. 
 (Curiousity) Would Fourier Anlalysis on the derivs yield anything. 
 
-
-### Goal
-
-
-### Model Choice
-
-Possible Hidden States: 
-
-Market Regimes: "Bullish" (trending up), "Bearish" (trending down), or "Sideways/Ranging" (consolidation or low activity).
-
-Volatility Levels: "Calm/Low Volatility" and "Volatile/High Volatility" states.
-
-Economic Cycles: Periods of "Recession" versus "Expansion".
-
-Liquidity/Interest: States denoting high or low trading interest/volume
-Possible Emmisions and Calculations of these emissions to use for Markov chain
-
-
-
-Moving Average for data smoothing
-
-
-Key metrics in Data:
-Market Cap: The total value of a company's outstanding shares.
-
-Volume: The number of shares traded during a period.
-
-EPS: Earnings per share, a measure of profitability.
-
-Beta: A measure of a stock's volatility relative to the market.
-
-Ex-dividend date: The date by which a stock must be purchased to receive the next dividend payment.
-
-One-year target estimate: An average of analyst price targets for the next year.
-
 ## Next Steps
