@@ -1,6 +1,13 @@
 # Milestone 1
 ### Team: Jack Bray, Alex Shield, Getchell Gibbons
+
+
 ## Data Collection: 
+
+Have you managed to gather the data? Yes.
+Do you have enough data of appropriate quality? Yes. 
+
+Yfinance makes it very easy to pull the data we need in a formatted and neat fashion.
 
 ## Relevant Related Sources
 Within academic and industry papers there is a rich source of hidden markov model applications to detect market regimes and drive dynamic portfolio strategies. To better understand the functionalities of this model, we’ve surveyed a wide breadth of recent papers applying hidden markov models within the last 10 years. Each source is compiled and summarized with key findings and methodological notes. 
