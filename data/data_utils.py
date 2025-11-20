@@ -45,7 +45,7 @@ NATURAL_RESOURCES_TICKERS = [
 ]
 
 # ====== FETCH FUNCTIONS ====== 
-def _fetch_data(tickers: list[str], period:str="1y", interval: str="1d") -> pd.DataFrame:
+def _fetch_data(tickers: list[str], period:str="15y", interval: str="1d") -> pd.DataFrame:
     """Helper to download and format data from Yahoo Finance."""
     data = yf.download(
         tickers=tickers,
@@ -55,26 +55,45 @@ def _fetch_data(tickers: list[str], period:str="1y", interval: str="1d") -> pd.D
         auto_adjust=True,
         progress=False
     )
-    df = pd.concat({ticker: data[ticker]["Close"] for ticker in tickers if ticker in data}, axis=1)
+
+    # Handle empty data
+    if data.empty:
+        return pd.DataFrame()
+
+    # Handle MultiIndex columns (multiple tickers) vs simple columns (single ticker)
+    if isinstance(data.columns, pd.MultiIndex):
+        # Multiple tickers: columns are (Ticker, OHLCV)
+        close_data = {}
+        for ticker in tickers:
+            if ticker in data.columns.levels[0]:
+                close_data[ticker] = data[ticker]["Close"]
+        df = pd.DataFrame(close_data)
+    else:
+        # Single ticker: columns are just OHLCV
+        if len(tickers) == 1 and "Close" in data.columns:
+            df = pd.DataFrame({tickers[0]: data["Close"]})
+        else:
+            df = pd.DataFrame()
+
     df.index.name = "Date"
     return df
 
-def get_individual_stocks(tickers=None, period="1y", interval="1d"):
+def get_individual_stocks(tickers=None, period="15y", interval="1d"):
     """Fetch historical data for multiple individual stocks."""
     tickers = tickers or STOCK_TICKERS
     return _fetch_data(tickers, period, interval)
 
-def get_indices(tickers=None, period="1y", interval="1d"):
+def get_indices(tickers=None, period="15y", interval="1d"):
     """Fetch historical data for multiple market indices."""
     tickers = tickers or INDEX_TICKERS
     return _fetch_data(tickers, period, interval)
 
-def get_natural_resources(tickers=None, period="1y", interval="1d"):
+def get_natural_resources(tickers=None, period="15y", interval="1d"):
     """Fetch historical data for natural resources and commodities."""
     tickers = tickers or NATURAL_RESOURCES_TICKERS
     return _fetch_data(tickers, period, interval)
 
-def get_volume_data(tickers=None, period="1y", interval="1d"):
+def get_volume_data(tickers=None, period="15y", interval="1d"):
     """Fetch volume data for multiple tickers."""
     tickers = tickers or STOCK_TICKERS
     data = yf.download(
@@ -85,10 +104,26 @@ def get_volume_data(tickers=None, period="1y", interval="1d"):
         auto_adjust=True,
         progress=False
     )
-    df = pd.concat({ticker: data[ticker]["Volume"] for ticker in tickers if ticker in data}, axis=1)
+
+    # Handle empty data
+    if data.empty:
+        return pd.DataFrame()
+
+    # Handle MultiIndex columns (multiple tickers) vs simple columns (single ticker)
+    if isinstance(data.columns, pd.MultiIndex):
+        # Multiple tickers: columns are (Ticker, OHLCV)
+        volume_data = {}
+        for ticker in tickers:
+            if ticker in data.columns.levels[0]:
+                volume_data[ticker] = data[ticker]["Volume"]
+        df = pd.DataFrame(volume_data)
+    else:
+        # Single ticker: columns are just OHLCV
+        if len(tickers) == 1 and "Volume" in data.columns:
+            df = pd.DataFrame({tickers[0]: data["Volume"]})
+        else:
+            df = pd.DataFrame()
+
     df.index.name = "Date"
     return df
-
-def calculate_moving_averages(df, window=20):
-    """Calculate moving averages for a given DataFrame."""
-    return df.rolling(window=window).mean()
+    
