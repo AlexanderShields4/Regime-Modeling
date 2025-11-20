@@ -4,7 +4,6 @@ from .data_utils import (
     get_indices,
     get_natural_resources,
     get_volume_data,
-    calculate_moving_averages,
     STOCK_TICKERS,
     INDEX_TICKERS,
     NATURAL_RESOURCES_TICKERS
