@@ -1,9 +1,6 @@
 import streamlit as st
 
-# Import data loaders
-from data.ind_stocks import load_individual_stocks
-from data.indices import load_indices
-from data.natural_resources import load_resources
+# Import data loader
 from pages_utils import fetch_all_data
 
 # ========== Streamlit App ==========
