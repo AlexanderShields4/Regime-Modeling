@@ -1,0 +1,43 @@
+{
+  "run_timestamp": "2025-11-26T21:34:51.936694",
+  "date_range": {
+    "start": "2010-12-21 00:00:00",
+    "end": "2025-11-21 00:00:00"
+  },
+  "strategies": [
+    "Buy & Hold 60/40",
+    "Bond Only 100%",
+    "Regime-Based (regime_change)",
+    "Regime-Based (monthly)",
+    "Regime-Based (quarterly)"
+  ],
+  "rebalancing_frequencies": [
+    "regime_change",
+    "monthly",
+    "quarterly"
+  ],
+  "best_strategy": "Regime-Based (quarterly)",
+  "transaction_cost": 0.001,
+  "regime_allocations": {
+    "Bull": {
+      "stocks": 0.8,
+      "bonds": 0.2
+    },
+    "Bear": {
+      "stocks": 0.3,
+      "bonds": 0.7
+    },
+    "Sideways": {
+      "stocks": 0.5,
+      "bonds": 0.5
+    }
+  },
+  "chart_files": [
+    "portfolio_value_comparison.png",
+    "cumulative_returns.png",
+    "drawdown_analysis.png",
+    "sharpe_ratio_comparison.png",
+    "annual_returns_by_strategy.png",
+    "regime_timeline_portfolio.png"
+  ]
+}

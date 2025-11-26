@@ -44,6 +44,13 @@ NATURAL_RESOURCES_TICKERS = [
     "GLD", "SLV", "USO", "UNG", "CORN", "WEAT", "SOYB"
 ]
 
+# ====== BOND ETF TICKERS ======
+BOND_ETF_TICKERS = [
+    "TLT",   # iShares 20+ Year Treasury Bond ETF (primary)
+    "IEF",   # iShares 7-10 Year Treasury Bond ETF (intermediate)
+    "AGG",   # iShares Core U.S. Aggregate Bond ETF (broad market)
+]
+
 # ====== FETCH FUNCTIONS ====== 
 def _fetch_data(tickers: list[str], period:str="15y", interval: str="1d") -> pd.DataFrame:
     """Helper to download and format data from Yahoo Finance."""
@@ -126,4 +133,28 @@ def get_volume_data(tickers=None, period="15y", interval="1d"):
 
     df.index.name = "Date"
     return df
-    
+
+
+def get_bond_data(ticker="TLT", period="15y", interval="1d"):
+    # Fetch bond ETF data (primarily TLT for long-duration treasuries)
+    # Falls back to IEF or AGG if TLT unavailable
+    try:
+        # Try primary bond ETF (TLT)
+        data = _fetch_data([ticker], period, interval)
+        if not data.empty:
+            return data
+    except Exception as e:
+        pass
+
+    # Try fallbacks if primary failed
+    for fallback_ticker in BOND_ETF_TICKERS:
+        if fallback_ticker != ticker:
+            try:
+                data = _fetch_data([fallback_ticker], period, interval)
+                if not data.empty:
+                    return data
+            except Exception as e:
+                continue
+
+    # If all failed, return empty DataFrame
+    return pd.DataFrame()
