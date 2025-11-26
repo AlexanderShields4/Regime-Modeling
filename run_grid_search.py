@@ -49,7 +49,7 @@ results_comprehensive = grid_search_parameters(
     top_n=10
 )
 
-# Total: 5 × 4 × 3 × 2 × 2 × 6 = 1,440 configurations
+# Total: 5 x 4 x 3 x 2 x 2 x 6 = 1,440 configurations
 # On 8 cores: ~30-90 minutes
 """
 

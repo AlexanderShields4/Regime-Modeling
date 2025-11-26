@@ -210,6 +210,31 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
         for i, count in enumerate(state_counts):
             print(f"  State {i}: {count} periods ({count/len(hidden_states)*100:.1f}%)")
 
+        # Generate dashboard outputs
+        print("\nStep 5: Generating dashboard outputs...")
+        dashboard_info = generate_dashboard_outputs(model, data, hidden_states, scaler)
+        print(f"Dashboard files saved to: {dashboard_info['output_dir']}/")
+        print(f"Files created: {', '.join(dashboard_info['files_created'])}")
+
+        # Calculate and save risk metrics
+        risk_metrics = calculate_risk_metrics(data, hidden_states)
+        if risk_metrics:
+            import json
+            with open(f"{dashboard_info['output_dir']}/risk_metrics.json", 'w') as f:
+                json.dump(risk_metrics, f, indent=2)
+            print(f"Risk metrics saved")
+
+        # Run portfolio backtest
+        print("\nStep 6: Running portfolio backtest...")
+        try:
+            backtest_results = run_portfolio_backtest(hidden_states, data)
+            print(f"Portfolio backtest complete!")
+            print(f"Best rebalancing frequency: {backtest_results['best_rebalance_freq']}")
+            print(f"Visualizations saved to: {backtest_results['output_dir']}/charts/")
+        except Exception as e:
+            print(f"Portfolio backtest failed: {e}")
+            print("Continuing without backtest results...")
+
         print("\n" + "="*60)
         print("HMM MODEL COMPLETE")
         print("="*60 + "\n")
@@ -304,7 +329,31 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
         'include_market_breadth': include_market_breadth
     }
     _save_backtest_results(results, params)
-    print("✓ Results saved to Results.md\n")
+    print("✓ Results saved to Results.md")
+
+    # Generate dashboard outputs for backtest
+    print("\nGenerating dashboard outputs...")
+    dashboard_info = generate_dashboard_outputs(model, test_data, test_states, scaler, results)
+    print(f"Dashboard files saved to: {dashboard_info['output_dir']}/")
+
+    # Calculate and save risk metrics
+    risk_metrics = calculate_risk_metrics(test_data, test_states)
+    if risk_metrics:
+        import json
+        with open(f"{dashboard_info['output_dir']}/risk_metrics.json", 'w') as f:
+            json.dump(risk_metrics, f, indent=2)
+        print(f"Risk metrics saved")
+
+    # Run portfolio backtest on test data
+    print("\nRunning portfolio backtest on test data...")
+    try:
+        backtest_results = run_portfolio_backtest(test_states, test_data)
+        print(f"Portfolio backtest complete!")
+        print(f"Best rebalancing frequency: {backtest_results['best_rebalance_freq']}")
+        print(f"Visualizations saved to: {backtest_results['output_dir']}/charts/\n")
+    except Exception as e:
+        print(f"Portfolio backtest failed: {e}")
+        print("Continuing without backtest results...\n")
 
     return results
 
@@ -584,20 +633,60 @@ def _run_single_config(args):
         results['config_id'] = config_id
         results['params'] = params
 
-        # Calculate composite score for ranking
-        # Lower is better: weighs degradation heavily, penalizes poor regime duration
-        degradation_penalty = results['degradation'] * 10  # Heavy weight on degradation
+        # Calculate regime quality metrics
+        test_states = results['test_states']
+        unique_states = np.unique(test_states)
+        n_unique_regimes = len(unique_states)
+        n_regime_changes = results['n_regime_changes']
+
+        # Calculate regime diversity (how balanced are the regimes?)
+        state_counts = np.bincount(test_states)
+        state_probs = state_counts / len(test_states)
+        # Entropy as a measure of diversity (higher is better, max log(3) for 3 states)
+        regime_entropy = -np.sum(state_probs[state_probs > 0] * np.log(state_probs[state_probs > 0]))
+        max_entropy = np.log(3)  # For 3 states
+        regime_diversity_score = regime_entropy / max_entropy  # 0 to 1, higher is better
+
+        # Penalize if not using all 3 regimes
+        regime_usage_penalty = 0
+        if n_unique_regimes < 3:
+            regime_usage_penalty = (3 - n_unique_regimes) * 100  # Heavy penalty
+
+        # Penalize if regimes don't switch enough (want meaningful regime changes)
+        switching_penalty = 0
+        if n_regime_changes < 5:
+            switching_penalty = (5 - n_regime_changes) * 30  # Not enough switching
+        elif n_regime_changes > len(test_states) / 3:
+            switching_penalty = (n_regime_changes - len(test_states) / 3) * 0.5  # Too much switching
+
+        # Regime duration penalty (want 5-50 days average)
         duration_penalty = 0
-        if results['avg_regime_duration'] < 5:
-            duration_penalty = (5 - results['avg_regime_duration']) * 50  # Too noisy
-        elif results['avg_regime_duration'] > 50:
-            duration_penalty = (results['avg_regime_duration'] - 50) * 10  # Too slow
+        avg_duration = results['avg_regime_duration']
+        if avg_duration < 5:
+            duration_penalty = (5 - avg_duration) * 40  # Too noisy
+        elif avg_duration > 50:
+            duration_penalty = (avg_duration - 50) * 5  # Too slow
+
+        # Model performance penalty
+        degradation_penalty = abs(results['degradation']) * 8  # Weight on out-of-sample performance
 
         # Normalize BIC (lower is better)
         bic_score = results['test_bic'] / 1000
 
-        # Composite score (lower is better)
-        results['score'] = degradation_penalty + duration_penalty + bic_score
+        # COMPOSITE SCORE (lower is better)
+        # Prioritizes: regime diversity, proper switching, good duration, model performance
+        results['score'] = (
+            degradation_penalty +           # Model generalization (weight ~8-16)
+            regime_usage_penalty +          # Must use all regimes (weight 0-200)
+            switching_penalty +             # Appropriate switching (weight 0-150)
+            duration_penalty +              # Good regime duration (weight 0-200)
+            bic_score +                     # Model fit (weight ~5-15)
+            (1 - regime_diversity_score) * 50  # Regime balance (weight 0-50)
+        )
+
+        # Store additional metrics for analysis
+        results['regime_diversity'] = regime_diversity_score
+        results['n_unique_regimes'] = n_unique_regimes
 
         return results
 
@@ -756,11 +845,13 @@ def grid_search_parameters(
         summary_data.append({
             'Config_ID': r['config_id'],
             'Score': r['score'],
+            'Regime_Diversity': r.get('regime_diversity', 0),
+            'N_Regimes_Used': r.get('n_unique_regimes', 0),
+            'Regime_Changes': r['n_regime_changes'],
+            'Avg_Duration': r['avg_regime_duration'],
             'Degradation%': r['degradation'],
             'Test_LogL': r['test_log_prob'],
             'Test_BIC': r['test_bic'],
-            'Avg_Duration': r['avg_regime_duration'],
-            'Regime_Changes': r['n_regime_changes'],
             'n_stocks': p['n_stocks'],
             'n_indices': p['n_indices'],
             'vol_window': p['volatility_window'],
@@ -796,12 +887,16 @@ def grid_search_parameters(
     print(f"  n_indices: {best['n_indices']}")
     print(f"  volatility_window: {best['vol_window']}")
     print(f"  Features: {best['Features']}")
-    print(f"\nPerformance:")
+    print(f"\nRegime Quality:")
+    print(f"  Regimes Used: {best['N_Regimes_Used']}/3")
+    print(f"  Regime Diversity: {best['Regime_Diversity']:.3f} (1.0 = perfectly balanced)")
+    print(f"  Regime Changes: {best['Regime_Changes']}")
+    print(f"  Avg Regime Duration: {best['Avg_Duration']:.1f} periods")
+    print(f"  Regime Types: {best['Regimes']}")
+    print(f"\nModel Performance:")
     print(f"  Degradation: {best['Degradation%']:.1f}%")
     print(f"  Test Log-Likelihood: {best['Test_LogL']:.0f}")
     print(f"  Test BIC: {best['Test_BIC']:.0f}")
-    print(f"  Avg Regime Duration: {best['Avg_Duration']:.1f} periods")
-    print(f"  Regime Types: {best['Regimes']}")
     print(f"\nDecision: {best['Decision']}")
     print("="*70 + "\n")
 
@@ -865,6 +960,338 @@ def grid_search_parameters(
     print("  scaler = data['scaler']\n")
 
     return results_df
+
+
+def generate_dashboard_outputs(model, data, hidden_states, scaler=None, backtest_results=None, output_dir='dashboard_outputs'):
+    # Create output directory, removing old files if they exist
+    if os.path.exists(output_dir):
+        import shutil
+        shutil.rmtree(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Generate regime timeline visualization
+    fig_regime = go.Figure()
+
+    # Add regime background colors
+    # Aggregate contiguous regime spans to speed up plotting
+    regime_changes = np.where(np.diff(hidden_states) != 0)[0]
+    starts = np.insert(regime_changes + 1, 0, 0)
+    ends = np.append(regime_changes, len(hidden_states) - 1)
+    for s, e in zip(starts, ends):
+        regime = hidden_states[s]
+        color = ['rgba(0,255,0,0.2)', 'rgba(255,0,0,0.2)', 'rgba(128,128,128,0.2)'][regime]
+        fig_regime.add_vrect(
+            x0=data.index[s], x1=data.index[e],
+            fillcolor=color, layer="below", line_width=0
+        )
+
+
+    # Add a dummy trace for each regime to show in legend
+    fig_regime.add_trace(go.Scatter(
+        x=[data.index[0]], y=[0], mode='markers',
+        marker=dict(size=10, color='green'), name='Bull Market'
+    ))
+    fig_regime.add_trace(go.Scatter(
+        x=[data.index[0]], y=[0], mode='markers',
+        marker=dict(size=10, color='red'), name='Bear Market'
+    ))
+    fig_regime.add_trace(go.Scatter(
+        x=[data.index[0]], y=[0], mode='markers',
+        marker=dict(size=10, color='gray'), name='Sideways Market'
+    ))
+
+    fig_regime.update_layout(
+        title='Market Regime Timeline',
+        xaxis_title='Date',
+        yaxis_title='Regime',
+        hovermode='x',
+        height=400,
+        showlegend=True
+    )
+    fig_regime.write_html(f'{output_dir}/regime_timeline.html')
+
+    # Generate regime statistics
+    regime_stats = {
+        'Total Periods': len(hidden_states),
+        'Bull Periods': int(np.sum(hidden_states == 0)),
+        'Bear Periods': int(np.sum(hidden_states == 1)),
+        'Sideways Periods': int(np.sum(hidden_states == 2)),
+        'Regime Changes': int(np.sum(np.diff(hidden_states) != 0)),
+        'Average Duration': float(len(hidden_states) / (np.sum(np.diff(hidden_states) != 0) + 1))
+    }
+
+    # Calculate regime percentages
+    regime_stats['Bull %'] = f"{regime_stats['Bull Periods'] / regime_stats['Total Periods'] * 100:.1f}%"
+    regime_stats['Bear %'] = f"{regime_stats['Bear Periods'] / regime_stats['Total Periods'] * 100:.1f}%"
+    regime_stats['Sideways %'] = f"{regime_stats['Sideways Periods'] / regime_stats['Total Periods'] * 100:.1f}%"
+
+    # Generate regime distribution pie chart
+    fig_pie = go.Figure(data=[go.Pie(
+        labels=['Bull Market', 'Bear Market', 'Sideways Market'],
+        values=[regime_stats['Bull Periods'], regime_stats['Bear Periods'], regime_stats['Sideways Periods']],
+        marker=dict(colors=['green', 'red', 'gray'])
+    )])
+    fig_pie.update_layout(title='Regime Distribution', height=400)
+    fig_pie.write_html(f'{output_dir}/regime_distribution.html')
+
+    # Generate portfolio allocation recommendations
+    allocations = pd.DataFrame({
+        'Regime': ['Bull Market', 'Bear Market', 'Sideways Market'],
+        'Stock %': [80, 30, 50],
+        'Bond %': [20, 70, 50],
+        'Description': [
+            'High growth potential, allocate more to stocks',
+            'Risk aversion, allocate more to bonds',
+            'Balanced approach for uncertain markets'
+        ]
+    })
+    allocations.to_csv(f'{output_dir}/portfolio_allocations.csv', index=False)
+
+    # Generate allocation visualization
+    fig_alloc = go.Figure(data=[
+        go.Bar(name='Stocks', x=allocations['Regime'], y=allocations['Stock %'], marker_color='green'),
+        go.Bar(name='Bonds', x=allocations['Regime'], y=allocations['Bond %'], marker_color='blue')
+    ])
+    fig_alloc.update_layout(
+        title='Recommended Portfolio Allocation by Regime',
+        xaxis_title='Regime',
+        yaxis_title='Allocation %',
+        barmode='stack',
+        height=400
+    )
+    fig_alloc.write_html(f'{output_dir}/portfolio_allocation_chart.html')
+
+    # Save regime statistics
+    with open(f'{output_dir}/regime_stats.json', 'w') as f:
+        import json
+        json.dump(regime_stats, f, indent=2)
+
+    # If backtest results available, generate performance metrics
+    if backtest_results:
+        performance_metrics = {
+            'Train Log-Likelihood': float(backtest_results['train_log_prob']),
+            'Test Log-Likelihood': float(backtest_results['test_log_prob']),
+            'Test AIC': float(backtest_results['test_aic']),
+            'Test BIC': float(backtest_results['test_bic']),
+            'Degradation %': float(backtest_results['degradation']),
+            'Average Regime Duration': float(backtest_results['avg_regime_duration']),
+            'Number of Regime Changes': int(backtest_results['n_regime_changes']),
+            'Decision': backtest_results['decision']
+        }
+
+        with open(f'{output_dir}/performance_metrics.json', 'w') as f:
+            json.dump(performance_metrics, f, indent=2)
+
+        # Generate performance summary table
+        metrics_df = pd.DataFrame([performance_metrics]).T
+        metrics_df.columns = ['Value']
+        metrics_df.to_csv(f'{output_dir}/performance_summary.csv')
+
+    # Generate feature importance visualization if model has means
+    try:
+        n_states = model.n_components
+        n_features = model.means_.shape[1]
+
+        # Create heatmap of feature means per regime
+        feature_cols = data.columns[:n_features] if len(data.columns) >= n_features else data.columns
+
+        fig_heatmap = go.Figure(data=go.Heatmap(
+            z=model.means_,
+            x=feature_cols,
+            y=['Bull', 'Bear', 'Sideways'],
+            colorscale='RdBu',
+            zmid=0
+        ))
+        fig_heatmap.update_layout(
+            title='Feature Means by Regime (Normalized)',
+            xaxis_title='Features',
+            yaxis_title='Regime',
+            height=500
+        )
+        fig_heatmap.write_html(f'{output_dir}/feature_importance.html')
+    except:
+        pass
+
+    return {
+        'output_dir': output_dir,
+        'regime_stats': regime_stats,
+        'files_created': os.listdir(output_dir)
+    }
+
+
+def calculate_risk_metrics(data, hidden_states):
+    # Extract return columns
+    return_cols = [col for col in data.columns if 'stock_' in col.lower() and '_ma_' not in col]
+
+    if len(return_cols) == 0:
+        return {}
+
+    # Calculate metrics for each regime
+    risk_metrics = {}
+
+    for regime, name in enumerate(['Bull', 'Bear', 'Sideways']):
+        mask = hidden_states == regime
+        if np.sum(mask) == 0:
+            continue
+
+        regime_data = data[mask][return_cols]
+
+        # Calculate average returns
+        avg_returns = regime_data.mean(axis=1).mean()
+
+        # Calculate volatility (std of returns)
+        volatility = regime_data.mean(axis=1).std()
+
+        # Calculate Sharpe ratio (assuming risk-free rate of 0.02/252 per day)
+        risk_free_rate = 0.02 / 252
+        sharpe = (avg_returns - risk_free_rate) / volatility if volatility > 0 else 0
+
+        # Calculate max drawdown
+        cumulative_returns = (1 + regime_data.mean(axis=1)).cumprod()
+        running_max = cumulative_returns.expanding().max()
+        drawdown = (cumulative_returns - running_max) / running_max
+        max_drawdown = drawdown.min()
+
+        risk_metrics[name] = {
+            'Average Return': float(avg_returns),
+            'Volatility': float(volatility),
+            'Sharpe Ratio': float(sharpe),
+            'Max Drawdown': float(max_drawdown),
+            'Periods': int(np.sum(mask))
+        }
+
+    return risk_metrics
+
+
+def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/backtest_results'):
+    # Run portfolio backtest using HMM regime predictions
+    import json
+    from data.data_utils import get_bond_data, get_indices
+    from portfolio_backtest import PortfolioBacktester
+    from portfolio_visualizer import PortfolioVisualizer
+    import shutil
+
+    # Create output directories
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(f'{output_dir}/charts', exist_ok=True)
+    os.makedirs(f'{output_dir}/data', exist_ok=True)
+
+    # Fetch bond data (TLT) for same date range
+    bond_data = get_bond_data("TLT", period="15y", interval="1d")
+    if bond_data.empty:
+        raise ValueError("Failed to fetch bond data (TLT)")
+
+    # Get stock data (use S&P 500 ^GSPC as proxy)
+    stock_data = get_indices(["^GSPC"], period="15y", interval="1d")
+    if stock_data.empty:
+        raise ValueError("Failed to fetch S&P 500 data")
+
+    # Align dates with feature data
+    feature_dates = data.index
+    bond_data = bond_data.loc[bond_data.index.isin(feature_dates)]
+    stock_data = stock_data.loc[stock_data.index.isin(feature_dates)]
+
+    # Further align all three datasets
+    common_dates = feature_dates.intersection(bond_data.index).intersection(stock_data.index)
+    bond_data = bond_data.loc[common_dates]
+    stock_data = stock_data.loc[common_dates]
+    aligned_regime_predictions = hidden_states[:len(common_dates)]
+
+    # Initialize backtester
+    backtester = PortfolioBacktester(
+        stock_data=stock_data.iloc[:, 0] if isinstance(stock_data, pd.DataFrame) else stock_data,
+        bond_data=bond_data.iloc[:, 0] if isinstance(bond_data, pd.DataFrame) else bond_data,
+        regime_predictions=aligned_regime_predictions,
+        transaction_cost=0.001,  # 0.1%
+        initial_capital=100000
+    )
+
+    # Define regime allocations (Bull: 80/20, Bear: 30/70, Sideways: 50/50)
+    regime_allocations = {
+        0: {'stocks': 0.80, 'bonds': 0.20},  # Bull
+        1: {'stocks': 0.30, 'bonds': 0.70},  # Bear
+        2: {'stocks': 0.50, 'bonds': 0.50}   # Sideways
+    }
+
+    # Run all strategies and compare
+    comparison_results = backtester.compare_all_strategies(regime_allocations)
+
+    strategy_results = comparison_results['strategy_results']
+    metrics = comparison_results['metrics']
+    best_rebalance_freq = comparison_results['best_rebalance_freq']
+
+    # Generate visualizations
+    visualizer = PortfolioVisualizer(output_dir=f'{output_dir}/charts')
+    visualization_paths = visualizer.save_all_visualizations(
+        comparison_results,
+        regime_predictions=aligned_regime_predictions,
+        dates=common_dates
+    )
+
+    # Save strategy results to CSV
+    strategy_df = pd.DataFrame(strategy_results)
+    strategy_df.index.name = 'Date'
+    strategy_df.to_csv(f'{output_dir}/data/strategy_results.csv')
+
+    # Save metrics to CSV
+    metrics_df = pd.DataFrame(metrics).T
+    metrics_df.index.name = 'Strategy'
+    metrics_df.to_csv(f'{output_dir}/data/metrics_summary.csv')
+
+    # Save best strategy info to JSON
+    best_strategy_info = {
+        'best_rebalance_freq': best_rebalance_freq,
+        'best_sharpe': comparison_results['best_sharpe'],
+        'best_strategy_name': f'Regime-Based ({best_rebalance_freq})' if best_rebalance_freq else None
+    }
+    with open(f'{output_dir}/data/best_strategy.json', 'w') as f:
+        json.dump(best_strategy_info, f, indent=2)
+
+    # Save regime allocations history
+    regime_allocation_history = []
+    for i, date in enumerate(common_dates):
+        regime = aligned_regime_predictions[i]
+        allocation = regime_allocations[regime]
+        regime_allocation_history.append({
+            'Date': date,
+            'Regime': regime,
+            'Regime_Name': ['Bull', 'Bear', 'Sideways'][regime],
+            'Stock_Pct': allocation['stocks'],
+            'Bond_Pct': allocation['bonds']
+        })
+    regime_alloc_df = pd.DataFrame(regime_allocation_history)
+    regime_alloc_df.to_csv(f'{output_dir}/data/regime_allocations.csv', index=False)
+
+    # Save metadata
+    metadata = {
+        'run_timestamp': datetime.now().isoformat(),
+        'date_range': {
+            'start': str(common_dates[0]),
+            'end': str(common_dates[-1])
+        },
+        'strategies': list(strategy_results.keys()),
+        'rebalancing_frequencies': ['regime_change', 'monthly', 'quarterly'],
+        'best_strategy': f'Regime-Based ({best_rebalance_freq})' if best_rebalance_freq else None,
+        'transaction_cost': 0.001,
+        'regime_allocations': {
+            'Bull': {'stocks': 0.8, 'bonds': 0.2},
+            'Bear': {'stocks': 0.3, 'bonds': 0.7},
+            'Sideways': {'stocks': 0.5, 'bonds': 0.5}
+        },
+        'chart_files': [os.path.basename(p) for p in visualization_paths]
+    }
+    with open(f'{output_dir}/backtest_metadata.json', 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    return {
+        'strategy_results': strategy_results,
+        'metrics': metrics,
+        'best_rebalance_freq': best_rebalance_freq,
+        'visualization_paths': visualization_paths,
+        'output_dir': output_dir
+    }
 
 
 def main():

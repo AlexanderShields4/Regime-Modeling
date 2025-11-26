@@ -15,7 +15,10 @@ RAW_DATA_CSV = os.path.join(CACHE_DIR, 'raw_merged_data.csv')
 
 
 def save_raw_data_cache(merged_df, cache_dir=CACHE_DIR):
+    # Create cache directory if it doesn't exist
     os.makedirs(cache_dir, exist_ok=True)
+
+    # Save data as pickle with metadata for fast loading
     cache_path = os.path.join(cache_dir, 'raw_merged_data.pkl')
     with open(cache_path, 'wb') as f:
         pickle.dump({
@@ -23,24 +26,32 @@ def save_raw_data_cache(merged_df, cache_dir=CACHE_DIR):
             'timestamp': datetime.now(),
             'shape': merged_df.shape
         }, f)
+
+    # Also save as CSV for human inspection
     csv_path = os.path.join(cache_dir, 'raw_merged_data.csv')
     merged_df.to_csv(csv_path, index=True)
+
     return cache_path
 
 
 def load_raw_data_cache(cache_path=RAW_DATA_CACHE):
+    # Return None if cache doesn't exist
     if not os.path.exists(cache_path):
         return None
+
+    # Load and return the cached DataFrame
     with open(cache_path, 'rb') as f:
         cache_data = pickle.load(f)
     return cache_data['data']
 
 
 def cache_exists(cache_path=RAW_DATA_CACHE):
+    # Check if cache file exists
     return os.path.exists(cache_path)
 
 
 def clear_cache(cache_dir=CACHE_DIR):
+    # Remove entire cache directory if it exists
     if os.path.exists(cache_dir):
         import shutil
         shutil.rmtree(cache_dir)
@@ -49,6 +60,7 @@ def clear_cache(cache_dir=CACHE_DIR):
 def merge_all_dataframes(stocks_df, indices_df, resources_df,
                          stock_moving_averages_df, indice_moving_averages_df,
                          resource_moving_averages_df, join_type='outer'):
+    # Organize all dataframes with descriptive keys
     df_dict = {
         'stock': stocks_df,
         'index': indices_df,
@@ -57,46 +69,69 @@ def merge_all_dataframes(stocks_df, indices_df, resources_df,
         'index_ma': indice_moving_averages_df,
         'resource_ma': resource_moving_averages_df
     }
+
+    # Add prefixes to column names to identify data source
     prefixed_dfs = [df.add_prefix(f'{prefix}_') for prefix, df in df_dict.items()]
+
+    # Concatenate all dataframes horizontally with specified join type
     combined_df = pd.concat(prefixed_dfs, axis=1, join=join_type)
+
+    # Sort by date index for chronological order
     combined_df.sort_index(inplace=True)
+
     return combined_df
 
 
 def handle_missing_values(df):
     df_clean = df.copy()
+
+    # Remove columns with more than 50% missing data
     nan_fraction = df_clean.isnull().sum() / len(df_clean)
     cols_to_keep = nan_fraction[nan_fraction <= 0.5].index
     df_clean = df_clean[cols_to_keep]
 
+    # Fill moving average columns with backward then forward fill
     ma_cols = [col for col in df_clean.columns if '_ma_' in col]
     if ma_cols:
         df_clean[ma_cols] = df_clean[ma_cols].fillna(method='bfill').fillna(method='ffill')
 
+    # Fill price columns with forward then backward fill (prefer recent data)
     price_cols = [col for col in df_clean.columns if '_ma_' not in col]
     if price_cols:
         df_clean[price_cols] = df_clean[price_cols].fillna(method='ffill').fillna(method='bfill')
 
+    # Interpolate any remaining gaps linearly
     if df_clean.isnull().sum().sum() > 0:
         df_clean = df_clean.interpolate(method='linear', axis=0)
 
+    # Drop any rows still containing NaN values
     df_clean = df_clean.dropna(axis=0)
+
     return df_clean
 
 
 def get_merged_data(join_type='inner', use_cache=True, force_refresh=False):
+    # Try to load from cache if enabled and not forcing refresh
     if use_cache and not force_refresh:
         cached_data = load_raw_data_cache()
         if cached_data is not None:
             return cached_data
 
+    # Fetch all raw data from data sources
     stocks_df, indices_df, resources_df, stock_moving_averages_df, indice_moving_averages_df, resource_moving_averages_df = fetch_all_data()
+
+    # Merge all dataframes with prefixes
     merged_df = merge_all_dataframes(stocks_df, indices_df, resources_df,
                                      stock_moving_averages_df, indice_moving_averages_df,
                                      resource_moving_averages_df, join_type=join_type)
+
+    # Clean missing values
     merged_df = handle_missing_values(merged_df)
+
+    # Save merged data to CSV for inspection
     merged_df.to_csv('merged_data.csv', index=True)
 
+    # Save to cache for faster future loads
     if use_cache:
         save_raw_data_cache(merged_df)
 
@@ -104,47 +139,63 @@ def get_merged_data(join_type='inner', use_cache=True, force_refresh=False):
 
 
 def calculate_returns(df, method='log'):
+    # Calculate log returns (more suitable for HMM) or simple percentage returns
     if method == 'log':
         returns = np.log(df / df.shift(1))
     else:
         returns = df.pct_change()
+
+    # Remove first row which will be NaN due to shift
     return returns.dropna()
 
 
 def calculate_volatility(returns_df, window=20):
+    # Rolling standard deviation of returns as volatility measure
     return returns_df.rolling(window=window).std()
 
 
 def calculate_rsi(prices, period=14):
+    # Relative Strength Index: momentum oscillator (0-100)
+    # Measures speed and magnitude of price changes
     delta = prices.diff()
+
+    # Separate gains and losses
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+
+    # Calculate relative strength and RSI
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
 
 def calculate_momentum(prices, period=10):
+    # Rate of change over specified period
     return prices.pct_change(periods=period)
 
 
 def calculate_market_breadth(returns_df):
+    # Aggregate market health indicators
     return pd.DataFrame({
-        'pct_positive': (returns_df > 0).sum(axis=1) / returns_df.shape[1],
-        'avg_return': returns_df.mean(axis=1),
-        'cross_sectional_vol': returns_df.std(axis=1)
+        'pct_positive': (returns_df > 0).sum(axis=1) / returns_df.shape[1],  # % of assets with positive returns
+        'avg_return': returns_df.mean(axis=1),  # Average return across all assets
+        'cross_sectional_vol': returns_df.std(axis=1)  # Dispersion of returns
     })
 
 
 def select_key_features(df, n_stocks=10, n_indices=5):
     selected_cols = []
+
+    # Select key market indices (S&P 500, NASDAQ, Dow Jones, Russell 2000, VIX)
     key_indices = [col for col in df.columns if any(idx in col for idx in ['GSPC', 'IXIC', 'DJI', 'RUT', 'VIX'])]
     selected_cols.extend(key_indices[:n_indices])
 
+    # Select priority stocks from major sectors (tech, finance, energy, healthcare, retail)
     stock_cols = [col for col in df.columns if col.startswith('stock_') and '_ma_' not in col]
     priority_stocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'JPM', 'XOM', 'JNJ', 'WMT']
     selected_stocks = [col for col in stock_cols if any(stock in col for stock in priority_stocks)][:n_stocks]
     selected_cols.extend(selected_stocks)
 
+    # Select commodity/resource columns (gold, oil, etc.)
     resource_cols = [col for col in df.columns if col.startswith('resource_') and '_ma_' not in col]
     selected_cols.extend(resource_cols[:5])
 
@@ -155,162 +206,83 @@ def create_enhanced_features_custom(df, include_returns=True, include_volatility
                                    include_rsi=True, include_momentum=True,
                                    include_market_breadth=True,
                                    volatility_window=20, rsi_period=14, momentum_period=10):
+    # Build feature set based on flags (allows flexible feature engineering)
     features_list = []
+
+    # Calculate log returns (stationary and suitable for HMM)
     returns = calculate_returns(df, method='log')
 
+    # Add returns if requested
     if include_returns:
         features_list.append(returns)
 
+    # Add rolling volatility for key assets
     if include_volatility:
         volatility = calculate_volatility(returns, window=volatility_window)
         volatility.columns = [f"{col}_vol" for col in volatility.columns]
+        # Select subset to avoid too many features
         key_vol_cols = [col for col in volatility.columns if any(x in col for x in ['GSPC', 'IXIC', 'AAPL', 'MSFT', 'VIX'])][:10]
         features_list.append(volatility[key_vol_cols])
 
+    # Add market breadth indicators (cross-sectional stats)
     if include_market_breadth:
         features_list.append(calculate_market_breadth(returns))
 
+    # Add technical indicators (RSI and momentum) for key price columns
     if include_rsi or include_momentum:
         key_price_cols = [col for col in df.columns if any(x in col for x in ['GSPC', 'IXIC', 'AAPL', 'MSFT', 'VIX'])][:10]
 
         if include_rsi:
+            # Calculate RSI for each key asset
             rsi_features = [calculate_rsi(df[col], period=rsi_period).rename(f"{col}_rsi")
                            for col in key_price_cols if col in df.columns]
             if rsi_features:
                 features_list.append(pd.concat(rsi_features, axis=1))
 
         if include_momentum:
+            # Calculate momentum for each key asset
             momentum_features = [calculate_momentum(df[col], period=momentum_period).rename(f"{col}_momentum")
                                 for col in key_price_cols if col in df.columns]
             if momentum_features:
                 features_list.append(pd.concat(momentum_features, axis=1))
 
+    # Combine all features and drop rows with any NaN values
     return pd.concat(features_list, axis=1).dropna()
 
 
-def create_enhanced_features(df, include_technical_indicators=True,
-                             volatility_window=20, rsi_period=14,
-                             momentum_period=10):
-    """
-    Create comprehensive feature set for HMM model.
-
-    Args:
-        df: Raw price DataFrame
-        include_technical_indicators: Whether to include RSI, momentum, etc.
-        volatility_window: Window for volatility calculation
-        rsi_period: Period for RSI calculation
-        momentum_period: Period for momentum calculation
-
-    Returns:
-        Enhanced feature DataFrame
-    """
-    print("Creating enhanced features...")
-
-    # 1. Calculate returns (stationary data)
-    print("  - Calculating returns...")
-    returns = calculate_returns(df, method='log')
-
-    # 2. Calculate volatility
-    print("  - Calculating volatility...")
-    volatility = calculate_volatility(returns, window=volatility_window)
-    volatility.columns = [f"{col}_vol" for col in volatility.columns]
-
-    # 3. Market breadth indicators
-    print("  - Calculating market breadth...")
-    breadth = calculate_market_breadth(returns)
-
-    # Combine features
-    features = returns.copy()
-
-    if include_technical_indicators:
-        print("  - Calculating technical indicators...")
-
-        # Select key price columns for technical indicators
-        key_price_cols = [col for col in df.columns if any(x in col for x in ['GSPC', 'IXIC', 'AAPL', 'MSFT', 'VIX'])][:10]
-
-        # Calculate RSI for key assets
-        for col in key_price_cols:
-            if col in df.columns:
-                rsi = calculate_rsi(df[col], period=rsi_period)
-                features[f"{col}_rsi"] = rsi
-
-        # Calculate momentum for key assets
-        for col in key_price_cols:
-            if col in df.columns:
-                momentum = calculate_momentum(df[col], period=momentum_period)
-                features[f"{col}_momentum"] = momentum
-
-    # Add volatility features (select subset to avoid too many features)
-    key_vol_cols = [col for col in volatility.columns if any(x in col for x in ['GSPC', 'IXIC', 'AAPL', 'MSFT', 'VIX'])][:10]
-    features = pd.concat([features, volatility[key_vol_cols]], axis=1)
-
-    # Add market breadth
-    features = pd.concat([features, breadth], axis=1)
-
-    # Drop any remaining NaN (from indicator calculations)
-    features = features.dropna()
-
-    print(f"  - Final feature shape: {features.shape}")
-    print(f"  - Features created: returns, volatility, breadth, RSI, momentum")
-
-    return features
 
 
 def apply_pca(features_df, n_components=20, variance_threshold=0.95):
-    """
-    Apply PCA for dimensionality reduction.
-
-    Args:
-        features_df: DataFrame of features
-        n_components: Number of components (if int) or None to auto-select
-        variance_threshold: Cumulative variance to retain (if n_components is None)
-
-    Returns:
-        Tuple of (transformed_data, pca_model, explained_variance_ratio)
-    """
-    print(f"Applying PCA...")
-    print(f"  - Input shape: {features_df.shape}")
-
-    # First normalize the data
+    # Normalize features before PCA to ensure all features contribute equally
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features_df)
 
-    # Apply PCA
+    # Choose PCA mode: auto-select components by variance threshold or use fixed number
     if n_components is None:
-        # Auto-select components based on variance threshold
         pca = PCA(n_components=variance_threshold, svd_solver='full')
     else:
+        # Ensure we don't request more components than available features
         pca = PCA(n_components=min(n_components, features_df.shape[1]))
 
+    # Transform features to principal components
     features_pca = pca.fit_transform(features_scaled)
 
-    print(f"  - Output shape: {features_pca.shape}")
-    print(f"  - Explained variance: {pca.explained_variance_ratio_.sum():.2%}")
-    print(f"  - Number of components: {pca.n_components_}")
-
-    # Create DataFrame with PCA components
+    # Convert to DataFrame with descriptive column names (PC1, PC2, etc.)
     pca_df = pd.DataFrame(
         features_pca,
         index=features_df.index,
         columns=[f'PC{i+1}' for i in range(features_pca.shape[1])]
     )
 
+    # Return PCA features, model, scaler, and variance explained by each component
     return pca_df, pca, scaler, pca.explained_variance_ratio_
 
 
 def normalize_features(features_df, method='standard'):
-    """
-    Normalize features using specified method.
-
-    Args:
-        features_df: DataFrame of features
-        method: 'standard', 'robust', or 'minmax'
-
-    Returns:
-        Tuple of (normalized_data, scaler)
-    """
-    print(f"Normalizing features using {method} scaling...")
-
+    # Select appropriate scaler based on method
+    # standard: zero mean, unit variance (sensitive to outliers)
+    # robust: uses median and IQR (resistant to outliers)
+    # minmax: scales to [0,1] range (sensitive to outliers)
     if method == 'standard':
         scaler = StandardScaler()
     elif method == 'robust':
@@ -320,15 +292,17 @@ def normalize_features(features_df, method='standard'):
     else:
         raise ValueError("method must be 'standard', 'robust', or 'minmax'")
 
+    # Fit scaler and transform features
     features_normalized = scaler.fit_transform(features_df)
 
-    # Create DataFrame
+    # Convert back to DataFrame to preserve index and column names
     normalized_df = pd.DataFrame(
         features_normalized,
         index=features_df.index,
         columns=features_df.columns
     )
 
+    # Return normalized features and fitted scaler for future transforms
     return normalized_df, scaler
 
 
@@ -337,77 +311,43 @@ def prepare_hmm_features(join_type='inner', use_pca=True, n_components=20,
                          n_stocks=15, n_indices=5,
                          volatility_window=20, rsi_period=14, momentum_period=10,
                          save_to_csv=True, csv_filename='enhanced_features.csv'):
-    """
-    Complete pipeline to prepare features for HMM model.
-
-    Args:
-        join_type: 'inner' or 'outer' for data merging
-        use_pca: Whether to apply PCA dimensionality reduction
-        n_components: Number of PCA components (if use_pca=True)
-        scaling_method: 'standard', 'robust', or 'minmax'
-        select_features: Whether to pre-select key features before processing
-        n_stocks: Number of stocks to select (if select_features=True)
-        n_indices: Number of indices to select (if select_features=True)
-        volatility_window: Window for volatility calculation
-        rsi_period: Period for RSI calculation
-        momentum_period: Period for momentum calculation
-        save_to_csv: Whether to save features to CSV
-        csv_filename: Name of CSV file to save features
-
-    Returns:
-        Tuple of (features_df, scaler, pca_model)
-    """
-    print("\n" + "="*60)
-    print("PREPARING HMM FEATURES")
-    print("="*60)
-
-    # 1. Get merged raw data
-    print("\n1. Loading raw data...")
+    # Load and merge all market data (stocks, indices, resources, moving averages)
     raw_data = get_merged_data(join_type=join_type)
-    print(f"   Raw data shape: {raw_data.shape}")
 
-    # 2. Select key features if requested (reduces noise)
+    # Optionally reduce feature set to key assets to reduce noise and computation
     if select_features:
-        print("\n2. Selecting key features...")
         raw_data = select_key_features(raw_data, n_stocks=n_stocks, n_indices=n_indices)
-        print(f"   Selected features shape: {raw_data.shape}")
 
-    # 3. Create enhanced features (returns, volatility, technical indicators)
-    print("\n3. Engineering features...")
-    features = create_enhanced_features(
+    # Engineer features: returns, volatility, RSI, momentum, market breadth
+    features = create_enhanced_features_custom(
         raw_data,
-        include_technical_indicators=True,
+        include_returns=True,
+        include_volatility=True,
+        include_rsi=True,
+        include_momentum=True,
+        include_market_breadth=True,
         volatility_window=volatility_window,
         rsi_period=rsi_period,
         momentum_period=momentum_period
     )
 
-    # Save features before normalization/PCA (for analysis and debugging)
+    # Save enhanced features before dimensionality reduction for later analysis
     if save_to_csv:
-        print(f"\n   Saving enhanced features to {csv_filename}...")
         features.to_csv(csv_filename, index=True)
-        print(f"   Saved {features.shape[0]} rows and {features.shape[1]} columns")
 
-    # 4. Apply PCA if requested
+    # Optionally reduce dimensionality with PCA to capture key variance
     pca_model = None
     pca_scaler = None
     if use_pca:
-        print(f"\n4. Applying PCA (n_components={n_components})...")
-        features, pca_model, pca_scaler, explained_var = apply_pca(
+        features, pca_model, pca_scaler, _ = apply_pca(
             features,
             n_components=n_components
         )
-        print(f"   Top 5 components explain: {explained_var[:5].sum():.2%} of variance")
 
-    # 5. Final normalization
-    print(f"\n5. Final normalization ({scaling_method})...")
+    # Final normalization to standardize feature scales for HMM
     features_normalized, final_scaler = normalize_features(features, method=scaling_method)
 
-    print("\n" + "="*60)
-    print(f"FINAL FEATURE MATRIX: {features_normalized.shape}")
-    print(f"Date range: {features_normalized.index[0]} to {features_normalized.index[-1]}")
-    print("="*60 + "\n")
-
+    # Return normalized features, scaler, and PCA model (if used)
     return features_normalized, final_scaler, pca_model, pca_scaler
 
 
@@ -417,52 +357,14 @@ def get_enhanced_features_for_model(join_type='inner', n_stocks=15, n_indices=5,
                                    include_returns=True, include_volatility=True,
                                    include_rsi=True, include_momentum=True,
                                    include_market_breadth=True):
-    """
-    Get enhanced features for the HMM model without PCA or normalization.
-    This returns the raw enhanced features (returns, volatility, market breadth, RSI, momentum)
-    that can be inspected and used directly.
-
-    Args:
-        join_type: 'inner' or 'outer' for data merging
-        n_stocks: Number of stocks to select
-        n_indices: Number of indices to select
-        volatility_window: Window for volatility calculation
-        rsi_period: Period for RSI calculation
-        momentum_period: Period for momentum calculation
-        save_to_csv: Whether to save to CSV
-        csv_filename: Filename for CSV output
-        include_returns: Include log returns features
-        include_volatility: Include rolling volatility features
-        include_rsi: Include RSI technical indicators
-        include_momentum: Include momentum indicators
-        include_market_breadth: Include market breadth indicators
-
-    Returns:
-        DataFrame with enhanced features (returns, volatility, market breadth, etc.)
-    """
-    print("\n" + "="*60)
-    print("GENERATING ENHANCED FEATURES FOR HMM MODEL")
-    print("="*60)
-
-    # 1. Get merged raw data
-    print("\n1. Loading raw data...")
+    # Load and merge all market data
     raw_data = get_merged_data(join_type=join_type)
-    print(f"   Raw data shape: {raw_data.shape}")
 
-    # 2. Select key features (reduces noise and computational burden)
-    print("\n2. Selecting key features...")
+    # Reduce to key features to minimize noise
     raw_data_selected = select_key_features(raw_data, n_stocks=n_stocks, n_indices=n_indices)
-    print(f"   Selected features shape: {raw_data_selected.shape}")
 
-    # 3. Create enhanced features based on selected feature types
-    print("\n3. Engineering features...")
-    print(f"   Feature types enabled:")
-    print(f"     - Returns: {include_returns}")
-    print(f"     - Volatility: {include_volatility}")
-    print(f"     - RSI: {include_rsi}")
-    print(f"     - Momentum: {include_momentum}")
-    print(f"     - Market Breadth: {include_market_breadth}")
-
+    # Create enhanced features with configurable feature types
+    # This provides raw features without normalization or PCA for direct analysis
     enhanced_features = create_enhanced_features_custom(
         raw_data_selected,
         include_returns=include_returns,
@@ -475,29 +377,9 @@ def get_enhanced_features_for_model(join_type='inner', n_stocks=15, n_indices=5,
         momentum_period=momentum_period
     )
 
-    # 4. Save to CSV if requested
+    # Optionally save enhanced features to CSV for inspection
     if save_to_csv:
-        print(f"\n4. Saving enhanced features to {csv_filename}...")
         enhanced_features.to_csv(csv_filename, index=True)
-        print(f"   Saved {enhanced_features.shape[0]} rows and {enhanced_features.shape[1]} columns")
-        print(f"   File location: ./{csv_filename}")
-
-        # Print feature breakdown
-        feature_types = {
-            'Returns': len([col for col in enhanced_features.columns if not any(x in col for x in ['_vol', '_rsi', '_momentum']) and col not in ['pct_positive', 'avg_return', 'cross_sectional_vol']]),
-            'Volatility': len([col for col in enhanced_features.columns if '_vol' in col and col != 'cross_sectional_vol']),
-            'RSI': len([col for col in enhanced_features.columns if '_rsi' in col]),
-            'Momentum': len([col for col in enhanced_features.columns if '_momentum' in col]),
-            'Market Breadth': len([col for col in enhanced_features.columns if col in ['pct_positive', 'avg_return', 'cross_sectional_vol']])
-        }
-        print("\n   Feature breakdown:")
-        for feat_type, count in feature_types.items():
-            print(f"     - {feat_type}: {count} features")
-
-    print("\n" + "="*60)
-    print(f"ENHANCED FEATURES READY: {enhanced_features.shape}")
-    print(f"Date range: {enhanced_features.index[0]} to {enhanced_features.index[-1]}")
-    print("="*60 + "\n")
 
     return enhanced_features
 

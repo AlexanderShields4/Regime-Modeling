@@ -1,11 +1,11 @@
 # Best HMM Configuration (from grid search)
-# Generated: 20251121_170032
+# Generated: 20251121_184852
 
 run_hmm_model(
     n_stocks=7,
     n_indices=0,
-    volatility_window=20,
-    rsi_period=14,
+    volatility_window=10,
+    rsi_period=21,
     momentum_period=10,
     include_returns=True,
     include_volatility=True,

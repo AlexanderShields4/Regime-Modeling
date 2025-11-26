@@ -1,0 +1,4 @@
+Regime,Stock %,Bond %,Description
+Bull Market,80,20,"High growth potential, allocate more to stocks"
+Bear Market,30,70,"Risk aversion, allocate more to bonds"
+Sideways Market,50,50,Balanced approach for uncertain markets
