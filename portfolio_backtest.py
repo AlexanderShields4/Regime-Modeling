@@ -147,7 +147,7 @@ class PortfolioBacktester:
         self.initial_capital = initial_capital
         self.metrics_calculator = PortfolioMetrics()
 
-    def get_rebalance_dates(self, frequency='monthly'):
+    def get_rebalance_dates(self, frequency):
         # Generate rebalancing schedule based on frequency
         dates = self.dates
 
@@ -300,7 +300,7 @@ class PortfolioBacktester:
         weight_schedule = {}
         for date in rebalance_dates:
             date_idx = self.dates.get_loc(date)
-            regime = self.regime_predictions[date_idx]
+            regime = int(self.regime_predictions[date_idx])
             weight_schedule[date] = regime_allocations[regime]
 
         portfolio_values = self.calculate_portfolio_value(weight_schedule, rebalance_dates)
