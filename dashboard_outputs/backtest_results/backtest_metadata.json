@@ -1,5 +1,5 @@
 {
-  "run_timestamp": "2025-11-26T21:34:51.936694",
+  "run_timestamp": "2025-11-28T17:32:37.788023",
   "date_range": {
     "start": "2010-12-21 00:00:00",
     "end": "2025-11-21 00:00:00"
@@ -19,13 +19,21 @@
   "best_strategy": "Regime-Based (quarterly)",
   "transaction_cost": 0.001,
   "regime_allocations": {
-    "Bull": {
-      "stocks": 0.8,
-      "bonds": 0.2
+    "Extreme Bull": {
+      "stocks": 1.0,
+      "bonds": 0.0
     },
-    "Bear": {
-      "stocks": 0.3,
-      "bonds": 0.7
+    "Moderate Bull": {
+      "stocks": 0.75,
+      "bonds": 0.25
+    },
+    "Extreme Bear": {
+      "stocks": 0.0,
+      "bonds": 1.0
+    },
+    "Moderate Bear": {
+      "stocks": 0.25,
+      "bonds": 0.75
     },
     "Sideways": {
       "stocks": 0.5,

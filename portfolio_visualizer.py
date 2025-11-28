@@ -175,10 +175,26 @@ class PortfolioVisualizer:
         # Dual-axis chart: regime background + portfolio value overlay
         fig, ax1 = plt.subplots(figsize=(14, 6))
 
-        # Add regime background colors
-        regime_colors = {0: 'rgba(0,255,0,0.2)', 1: 'rgba(255,0,0,0.2)', 2: 'rgba(128,128,128,0.2)'}
-        regime_names = {0: 'Bull', 1: 'Bear', 2: 'Sideways'}
+        # FIXED: Support 5 regimes (0-4) instead of just 3
+        regime_colors = {
+            0: 'lightgreen',      # Extreme Bull
+            1: 'palegreen',       # Moderate Bull
+            2: 'lightcoral',      # Extreme Bear
+            3: 'lightsalmon',     # Moderate Bear
+            4: 'lightgray'        # Sideways
+        }
+        
+        regime_names = {
+            0: 'Extreme Bull',
+            1: 'Moderate Bull',
+            2: 'Extreme Bear',
+            3: 'Moderate Bear',
+            4: 'Sideways'
+        }
 
+        # Track which regimes we've added to legend
+        added_to_legend = set()
+        
         current_regime = regime_predictions[0]
         start_idx = 0
 
@@ -186,8 +202,17 @@ class PortfolioVisualizer:
             if regime_predictions[i] != current_regime or i == len(regime_predictions) - 1:
                 # Plot shaded region for this regime
                 end_idx = i if i < len(regime_predictions) - 1 else i
-                color = 'lightgreen' if current_regime == 0 else 'lightcoral' if current_regime == 1 else 'lightgray'
-                ax1.axvspan(dates[start_idx], dates[end_idx], alpha=0.3, color=color, label=regime_names[current_regime])
+                
+                # Get color and name, with fallback for unknown regimes
+                color = regime_colors.get(current_regime, 'lightgray')
+                name = regime_names.get(current_regime, f'Regime {current_regime}')
+                
+                # Only add label if this regime hasn't been added to legend yet
+                label = name if current_regime not in added_to_legend else None
+                if current_regime not in added_to_legend:
+                    added_to_legend.add(current_regime)
+                
+                ax1.axvspan(dates[start_idx], dates[end_idx], alpha=0.3, color=color, label=label)
 
                 current_regime = regime_predictions[i]
                 start_idx = i

@@ -23,28 +23,59 @@ def _split_time_series_data(data, train_ratio=0.8):
 
 
 def _analyze_regime_characteristics(states, data, n_states):
-    """Analyze economic characteristics of each regime."""
-    return_cols = [col for col in data.columns if 'stock_' in col.lower() and '_ma_' not in col]
+    """Analyze economic characteristics of each regime with 5-level classification."""
+    
+    return_cols = [
+        col for col in data.columns 
+        if 'stock_' in col.lower() and '_ma_' not in col
+    ]
+    
     regime_types = []
+    if not return_cols:
+        return ["Unknown"] * n_states
+
+    # Global values for comparison
+    global_mean = data[return_cols].mean(axis=1).mean()
+    global_std  = data[return_cols].mean(axis=1).std()
 
     for regime in range(n_states):
         mask = states == regime
-        if len(data[mask]) == 0 or len(return_cols) == 0:
+        subset = data[mask]
+
+        if len(subset) == 0:
             regime_types.append("Unknown")
             continue
 
-        regime_returns = data[mask][return_cols].mean(axis=1)
+        # Compute regime returns
+        regime_returns = subset[return_cols].mean(axis=1)
         mean_return = regime_returns.mean()
-        std_return = regime_returns.std()
+        std_return  = regime_returns.std()
 
-        if mean_return > 0.001 and std_return < data[return_cols].std().mean():
-            regime_types.append("Bull")
-        elif mean_return < -0.001:
-            regime_types.append("Bear")
+        # ---- Thresholds (tweak if needed) ----
+        extreme_bull_thr = global_mean + 1.5 * global_std
+        moderate_bull_thr = global_mean + 0.3 * global_std
+
+        extreme_bear_thr = global_mean - 1.5 * global_std
+        moderate_bear_thr = global_mean - 0.3 * global_std
+        
+        # ---- Classification ----
+        if mean_return >= extreme_bull_thr and std_return < global_std:
+            regime_types.append("Extreme Bull")
+
+        elif mean_return >= moderate_bull_thr:
+            regime_types.append("Moderate Bull")
+
+        elif mean_return <= extreme_bear_thr and std_return < global_std:
+            regime_types.append("Extreme Bear")
+
+        elif mean_return <= moderate_bear_thr:
+            regime_types.append("Moderate Bear")
+
         else:
             regime_types.append("Sideways")
 
     return regime_types
+
 
 
 def _save_backtest_results(results, params):
@@ -84,10 +115,14 @@ def _save_backtest_results(results, params):
     # Create regime allocation string
     regime_info = []
     for i, rtype in enumerate(results['regime_types']):
-        if rtype == "Bull":
-            alloc = "80/20"
-        elif rtype == "Bear":
-            alloc = "30/70"
+        if rtype == "Extreme Bull":
+            alloc = "100/0"
+        elif rtype == 'Moderate Bull':
+            alloc = "75/25"
+        elif rtype == "Extreme Bear":
+            alloc = "0/100"
+        elif rtype == "Moderate Bear":
+            alloc = "25/75"
         else:
             alloc = "50/50"
         regime_info.append(f"R{i}:{rtype}({alloc})")
@@ -181,7 +216,7 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
     print(f"Scaled data shape: {obs_scaled.shape}")
 
     # Define market states
-    states = ["Bull Market", "Bear Market", "Sideways Market"]
+    states = ["Extreme Bull Market", "Moderate Bull Market", "Moderate Bear Market", "Extreme Bear Market", "Sideways Market"]
     n_states = len(states)
 
     print(f"\nStep 3: Training HMM with {n_states} states...")
@@ -275,7 +310,7 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
     avg_regime_duration = len(test_states) / (regime_changes + 1)
 
     # Analyze regime characteristics
-    regime_types = _analyze_regime_characteristics(test_states, test_data, n_states)
+    regime_types = _analyze_regime_characteristics(test_states, train_data, n_states)
 
     # Print concise results
     print(f"Train LogL: {train_log_prob_avg:.2f}/sample ({train_log_prob:.0f} total)")
@@ -963,94 +998,159 @@ def grid_search_parameters(
 
 
 def generate_dashboard_outputs(model, data, hidden_states, scaler=None, backtest_results=None, output_dir='dashboard_outputs'):
+    import os
+    import json
+    import numpy as np
+    import pandas as pd
+    from datetime import datetime
+    import plotly.graph_objects as go
+    import plotly.express as px
+    import shutil
+
     # Create output directory, removing old files if they exist
     if os.path.exists(output_dir):
-        import shutil
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
-    # Generate regime timeline visualization
+    # -------------------------
+    # Regime names & colors
+    # -------------------------
+    regime_names = [
+        'Extreme Bull',
+        'Moderate Bull',
+        'Extreme Bear',
+        'Moderate Bear',
+        'Sideways'
+    ]
+
+    # color map keyed by regime name (rgba for vrect translucency)
+    color_map = {
+        'Extreme Bull': 'rgba(0,200,0,0.25)',      # bright green
+        'Moderate Bull': 'rgba(0,120,0,0.25)',     # darker green
+        'Extreme Bear': 'rgba(220,0,0,0.25)',      # bright red
+        'Moderate Bear': 'rgba(140,0,0,0.25)',     # darker red
+        'Sideways': 'rgba(120,120,120,0.25)'       # grey
+    }
+
+    # marker colors for legend (opaque)
+    marker_map = {
+        'Extreme Bull': 'green',
+        'Moderate Bull': 'darkgreen',
+        'Extreme Bear': 'red',
+        'Moderate Bear': 'darkred',
+        'Sideways': 'gray'
+    }
+
+    # -------------------------
+    # Regime timeline (Plotly)
+    # -------------------------
     fig_regime = go.Figure()
 
-    # Add regime background colors
-    # Aggregate contiguous regime spans to speed up plotting
-    regime_changes = np.where(np.diff(hidden_states) != 0)[0]
-    starts = np.insert(regime_changes + 1, 0, 0)
-    ends = np.append(regime_changes, len(hidden_states) - 1)
-    for s, e in zip(starts, ends):
-        regime = hidden_states[s]
-        color = ['rgba(0,255,0,0.2)', 'rgba(255,0,0,0.2)', 'rgba(128,128,128,0.2)'][regime]
-        fig_regime.add_vrect(
-            x0=data.index[s], x1=data.index[e],
-            fillcolor=color, layer="below", line_width=0
-        )
+    # Aggregate contiguous regime spans
+    if len(hidden_states) == 0:
+        # Nothing to plot
+        fig_regime.add_annotation(text="No regime data", xref="paper", yref="paper", showarrow=False)
+    else:
+        regime_changes = np.where(np.diff(hidden_states) != 0)[0]
+        starts = np.insert(regime_changes + 1, 0, 0)
+        ends = np.append(regime_changes, len(hidden_states) - 1)
 
+        for s, e in zip(starts, ends):
+            regime_idx = int(hidden_states[s])
+            # guard: if index out of range, fallback to 'Sideways'
+            if 0 <= regime_idx < len(regime_names):
+                regime_name = regime_names[regime_idx]
+            else:
+                regime_name = 'Sideways'
 
-    # Add a dummy trace for each regime to show in legend
-    fig_regime.add_trace(go.Scatter(
-        x=[data.index[0]], y=[0], mode='markers',
-        marker=dict(size=10, color='green'), name='Bull Market'
-    ))
-    fig_regime.add_trace(go.Scatter(
-        x=[data.index[0]], y=[0], mode='markers',
-        marker=dict(size=10, color='red'), name='Bear Market'
-    ))
-    fig_regime.add_trace(go.Scatter(
-        x=[data.index[0]], y=[0], mode='markers',
-        marker=dict(size=10, color='gray'), name='Sideways Market'
-    ))
+            fill_color = color_map.get(regime_name, 'rgba(120,120,120,0.25)')
+
+            fig_regime.add_vrect(
+                x0=data.index[s], x1=data.index[e],
+                fillcolor=fill_color, layer="below", line_width=0,
+                annotation_text=regime_name if (e - s) <= 100 else None,  # optional label for short spans
+                annotation_position="top left"
+            )
+
+    # Add invisible/dummy traces purely for legend (one per regime)
+    for name in regime_names:
+        fig_regime.add_trace(go.Scatter(
+            x=[data.index[0] if len(data.index) else None],
+            y=[0],
+            mode='markers',
+            marker=dict(size=10, color=marker_map.get(name, 'gray')),
+            name=f"{name} Market",
+            visible=True,
+            hoverinfo='none'  # these are just legend entries
+        ))
 
     fig_regime.update_layout(
         title='Market Regime Timeline',
         xaxis_title='Date',
-        yaxis_title='Regime',
+        yaxis=dict(visible=False),  # timeline is background colored; hide numeric axis
         hovermode='x',
         height=400,
-        showlegend=True
+        showlegend=True,
+        margin=dict(t=50, b=40, l=40, r=20)
     )
     fig_regime.write_html(f'{output_dir}/regime_timeline.html')
 
-    # Generate regime statistics
+    # -------------------------
+    # Regime statistics
+    # -------------------------
+    total_periods = len(hidden_states)
+    counts = {name: int(np.sum(hidden_states == i)) if i < len(regime_names) else 0 for i, name in enumerate(regime_names)}
+
     regime_stats = {
-        'Total Periods': len(hidden_states),
-        'Bull Periods': int(np.sum(hidden_states == 0)),
-        'Bear Periods': int(np.sum(hidden_states == 1)),
-        'Sideways Periods': int(np.sum(hidden_states == 2)),
+        'Total Periods': total_periods,
+        'Extreme Bull Periods': counts['Extreme Bull'],
+        'Moderate Bull Periods': counts['Moderate Bull'],
+        'Extreme Bear Periods': counts['Extreme Bear'],
+        'Moderate Bear Periods': counts['Moderate Bear'],
+        'Sideways Periods': counts['Sideways'],
         'Regime Changes': int(np.sum(np.diff(hidden_states) != 0)),
-        'Average Duration': float(len(hidden_states) / (np.sum(np.diff(hidden_states) != 0) + 1))
+        'Average Duration': float(total_periods / (np.sum(np.diff(hidden_states) != 0) + 1)) if total_periods > 0 else 0.0
     }
 
-    # Calculate regime percentages
-    regime_stats['Bull %'] = f"{regime_stats['Bull Periods'] / regime_stats['Total Periods'] * 100:.1f}%"
-    regime_stats['Bear %'] = f"{regime_stats['Bear Periods'] / regime_stats['Total Periods'] * 100:.1f}%"
-    regime_stats['Sideways %'] = f"{regime_stats['Sideways Periods'] / regime_stats['Total Periods'] * 100:.1f}%"
+    # percentages
+    for key in ['Extreme Bull', 'Moderate Bull', 'Extreme Bear', 'Moderate Bear', 'Sideways']:
+        regime_stats[f'{key} %'] = f"{(regime_stats[f'{key} Periods'] / total_periods * 100):.1f}%" if total_periods > 0 else "0.0%"
 
-    # Generate regime distribution pie chart
-    fig_pie = go.Figure(data=[go.Pie(
-        labels=['Bull Market', 'Bear Market', 'Sideways Market'],
-        values=[regime_stats['Bull Periods'], regime_stats['Bear Periods'], regime_stats['Sideways Periods']],
-        marker=dict(colors=['green', 'red', 'gray'])
-    )])
+    # -------------------------
+    # Regime distribution pie (Plotly)
+    # -------------------------
+    pie_labels = [
+        'Extreme Bull Market', 'Moderate Bull Market', 'Extreme Bear Market',
+        'Moderate Bear Market', 'Sideways Market'
+    ]
+    pie_values = [
+        regime_stats['Extreme Bull Periods'],
+        regime_stats['Moderate Bull Periods'],
+        regime_stats['Extreme Bear Periods'],
+        regime_stats['Moderate Bear Periods'],
+        regime_stats['Sideways Periods']
+    ]
+    pie_colors = [marker_map['Extreme Bull'], marker_map['Moderate Bull'],
+                  marker_map['Extreme Bear'], marker_map['Moderate Bear'],
+                  marker_map['Sideways']]
+
+    fig_pie = go.Figure(data=[go.Pie(labels=pie_labels, values=pie_values, marker=dict(colors=pie_colors), sort=False)])
     fig_pie.update_layout(title='Regime Distribution', height=400)
     fig_pie.write_html(f'{output_dir}/regime_distribution.html')
 
-    # Generate portfolio allocation recommendations
+    # -------------------------
+    # Portfolio allocations CSV + bar chart
+    # -------------------------
     allocations = pd.DataFrame({
-        'Regime': ['Bull Market', 'Bear Market', 'Sideways Market'],
-        'Stock %': [80, 30, 50],
-        'Bond %': [20, 70, 50],
-        'Description': [
-            'High growth potential, allocate more to stocks',
-            'Risk aversion, allocate more to bonds',
-            'Balanced approach for uncertain markets'
-        ]
+        'Regime': ['Extreme Bull Market', 'Moderate Bull Market', 'Extreme Bear Market', 'Moderate Bear Market', 'Sideways Market'],
+        'Stock %': [100, 75, 0, 25, 50],
+        'Bond %': [0, 25, 100, 75, 50],
     })
     allocations.to_csv(f'{output_dir}/portfolio_allocations.csv', index=False)
 
-    # Generate allocation visualization
     fig_alloc = go.Figure(data=[
-        go.Bar(name='Stocks', x=allocations['Regime'], y=allocations['Stock %'], marker_color='green'),
-        go.Bar(name='Bonds', x=allocations['Regime'], y=allocations['Bond %'], marker_color='blue')
+        go.Bar(name='Stocks', x=allocations['Regime'], y=allocations['Stock %'], marker_color=marker_map['Extreme Bull']),
+        go.Bar(name='Bonds', x=allocations['Regime'], y=allocations['Bond %'], marker_color=marker_map['Moderate Bear'])
     ])
     fig_alloc.update_layout(
         title='Recommended Portfolio Allocation by Regime',
@@ -1061,63 +1161,74 @@ def generate_dashboard_outputs(model, data, hidden_states, scaler=None, backtest
     )
     fig_alloc.write_html(f'{output_dir}/portfolio_allocation_chart.html')
 
-    # Save regime statistics
+    # -------------------------
+    # Save regime_stats JSON
+    # -------------------------
     with open(f'{output_dir}/regime_stats.json', 'w') as f:
-        import json
         json.dump(regime_stats, f, indent=2)
 
-    # If backtest results available, generate performance metrics
+    # -------------------------
+    # Performance metrics (backtest results)
+    # -------------------------
     if backtest_results:
         performance_metrics = {
-            'Train Log-Likelihood': float(backtest_results['train_log_prob']),
-            'Test Log-Likelihood': float(backtest_results['test_log_prob']),
-            'Test AIC': float(backtest_results['test_aic']),
-            'Test BIC': float(backtest_results['test_bic']),
-            'Degradation %': float(backtest_results['degradation']),
-            'Average Regime Duration': float(backtest_results['avg_regime_duration']),
-            'Number of Regime Changes': int(backtest_results['n_regime_changes']),
-            'Decision': backtest_results['decision']
+            'Train Log-Likelihood': float(backtest_results.get('train_log_prob', np.nan)),
+            'Test Log-Likelihood': float(backtest_results.get('test_log_prob', np.nan)),
+            'Test AIC': float(backtest_results.get('test_aic', np.nan)),
+            'Test BIC': float(backtest_results.get('test_bic', np.nan)),
+            'Degradation %': float(backtest_results.get('degradation', np.nan)),
+            'Average Regime Duration': float(backtest_results.get('avg_regime_duration', np.nan)),
+            'Number of Regime Changes': int(backtest_results.get('n_regime_changes', 0)),
+            'Decision': backtest_results.get('decision', '')
         }
 
         with open(f'{output_dir}/performance_metrics.json', 'w') as f:
             json.dump(performance_metrics, f, indent=2)
 
-        # Generate performance summary table
+        # Generate performance summary CSV
         metrics_df = pd.DataFrame([performance_metrics]).T
         metrics_df.columns = ['Value']
         metrics_df.to_csv(f'{output_dir}/performance_summary.csv')
 
-    # Generate feature importance visualization if model has means
+    # -------------------------
+    # Feature importance heatmap (if model has means_)
+    # -------------------------
     try:
-        n_states = model.n_components
-        n_features = model.means_.shape[1]
+        n_states = int(getattr(model, 'n_components', len(regime_names)))
+        means = getattr(model, 'means_', None)
+        if means is not None:
+            n_features = means.shape[1]
+            feature_cols = list(data.columns[:n_features]) if len(data.columns) >= n_features else list(data.columns)
 
-        # Create heatmap of feature means per regime
-        feature_cols = data.columns[:n_features] if len(data.columns) >= n_features else data.columns
+            # If model has fewer states than regime_names, adjust labels
+            heatmap_regime_labels = regime_names[:means.shape[0]]
 
-        fig_heatmap = go.Figure(data=go.Heatmap(
-            z=model.means_,
-            x=feature_cols,
-            y=['Bull', 'Bear', 'Sideways'],
-            colorscale='RdBu',
-            zmid=0
-        ))
-        fig_heatmap.update_layout(
-            title='Feature Means by Regime (Normalized)',
-            xaxis_title='Features',
-            yaxis_title='Regime',
-            height=500
-        )
-        fig_heatmap.write_html(f'{output_dir}/feature_importance.html')
-    except:
+            fig_heatmap = go.Figure(data=go.Heatmap(
+                z=means,
+                x=feature_cols,
+                y=heatmap_regime_labels,
+                colorscale='RdBu',
+                zmid=0
+            ))
+            fig_heatmap.update_layout(
+                title='Feature Means by Regime (Normalized)',
+                xaxis_title='Features',
+                yaxis_title='Regime',
+                height=500
+            )
+            fig_heatmap.write_html(f'{output_dir}/feature_importance.html')
+    except Exception:
+        # if anything goes wrong with the heatmap, just skip it
         pass
 
+    # -------------------------
+    # Return metadata
+    # -------------------------
     return {
         'output_dir': output_dir,
         'regime_stats': regime_stats,
         'files_created': os.listdir(output_dir)
     }
-
 
 def calculate_risk_metrics(data, hidden_states):
     # Extract return columns
@@ -1129,7 +1240,7 @@ def calculate_risk_metrics(data, hidden_states):
     # Calculate metrics for each regime
     risk_metrics = {}
 
-    for regime, name in enumerate(['Bull', 'Bear', 'Sideways']):
+    for regime, name in enumerate(['Extreme Bull', 'Moderate Bull', 'Extreme Bear', 'Moderate Bear', 'Sideways']):
         mask = hidden_states == regime
         if np.sum(mask) == 0:
             continue
@@ -1208,11 +1319,13 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
         initial_capital=100000
     )
 
-    # Define regime allocations (Bull: 80/20, Bear: 30/70, Sideways: 50/50)
+    # Define regime allocations
     regime_allocations = {
-        0: {'stocks': 0.80, 'bonds': 0.20},  # Bull
-        1: {'stocks': 0.30, 'bonds': 0.70},  # Bear
-        2: {'stocks': 0.50, 'bonds': 0.50}   # Sideways
+        0: {'stocks': 1.0, 'bonds': 0.0}, 
+        1: {'stocks': 0.75, 'bonds': 0.25},  
+        2: {'stocks': 0.0, 'bonds': 1.0},
+        3: {'stocks': 0.25, 'bonds': 0.75},
+        4: {'stocks': 0.5, 'bonds': 0.5} 
     }
 
     # Run all strategies and compare
@@ -1252,38 +1365,45 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
     # Save regime allocations history
     regime_allocation_history = []
     for i, date in enumerate(common_dates):
-        regime = aligned_regime_predictions[i]
+        regime = int(aligned_regime_predictions[i])
         allocation = regime_allocations[regime]
         regime_allocation_history.append({
             'Date': date,
             'Regime': regime,
-            'Regime_Name': ['Bull', 'Bear', 'Sideways'][regime],
+            'Regime_Name': ['Extreme Bull', "Moderate Bull", 'Extreme Bear', 'Moderate Bear', 'Sideways'][regime],
             'Stock_Pct': allocation['stocks'],
             'Bond_Pct': allocation['bonds']
         })
     regime_alloc_df = pd.DataFrame(regime_allocation_history)
     regime_alloc_df.to_csv(f'{output_dir}/data/regime_allocations.csv', index=False)
 
+    chart_files = [os.path.basename(p) for p in visualization_paths] if visualization_paths else []
+
     # Save metadata
     metadata = {
         'run_timestamp': datetime.now().isoformat(),
-        'date_range': {
-            'start': str(common_dates[0]),
-            'end': str(common_dates[-1])
-        },
+        'date_range': {'start': str(common_dates[0]), 'end': str(common_dates[-1])},
         'strategies': list(strategy_results.keys()),
         'rebalancing_frequencies': ['regime_change', 'monthly', 'quarterly'],
         'best_strategy': f'Regime-Based ({best_rebalance_freq})' if best_rebalance_freq else None,
         'transaction_cost': 0.001,
         'regime_allocations': {
-            'Bull': {'stocks': 0.8, 'bonds': 0.2},
-            'Bear': {'stocks': 0.3, 'bonds': 0.7},
+            'Extreme Bull': {'stocks': 1.0, 'bonds': 0.0},
+            'Moderate Bull': {'stocks': 0.75, 'bonds': 0.25},
+            'Extreme Bear': {'stocks': 0.0, 'bonds': 1.0},
+            'Moderate Bear': {'stocks': 0.25, 'bonds': 0.75},
             'Sideways': {'stocks': 0.5, 'bonds': 0.5}
         },
-        'chart_files': [os.path.basename(p) for p in visualization_paths]
+        'chart_files': chart_files
     }
-    with open(f'{output_dir}/backtest_metadata.json', 'w') as f:
-        json.dump(metadata, f, indent=2)
+
+    try:
+        with open(f'{output_dir}/backtest_metadata.json', 'w') as f:
+            json.dump(metadata, f, indent=2)
+        print(f"Metadata saved to {output_dir}/backtest_metadata.json")
+    except Exception as e:
+        print(f"Failed to save metadata: {e}")
+
 
     return {
         'strategy_results': strategy_results,

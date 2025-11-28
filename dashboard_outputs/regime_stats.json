@@ -1,11 +1,15 @@
 {
   "Total Periods": 3754,
-  "Bull Periods": 1352,
-  "Bear Periods": 137,
-  "Sideways Periods": 2265,
-  "Regime Changes": 322,
-  "Average Duration": 11.622291021671826,
-  "Bull %": "36.0%",
-  "Bear %": "3.6%",
-  "Sideways %": "60.3%"
+  "Extreme Bull Periods": 996,
+  "Moderate Bull Periods": 1147,
+  "Extreme Bear Periods": 1334,
+  "Moderate Bear Periods": 21,
+  "Sideways Periods": 256,
+  "Regime Changes": 345,
+  "Average Duration": 10.84971098265896,
+  "Extreme Bull %": "26.5%",
+  "Moderate Bull %": "30.6%",
+  "Extreme Bear %": "35.5%",
+  "Moderate Bear %": "0.6%",
+  "Sideways %": "6.8%"
 }
