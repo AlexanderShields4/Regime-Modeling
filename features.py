@@ -5,7 +5,7 @@ from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.decomposition import PCA
 import pickle
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -24,24 +24,61 @@ def save_raw_data_cache(merged_df, cache_dir=CACHE_DIR):
         pickle.dump({
             'data': merged_df,
             'timestamp': datetime.now(),
-            'shape': merged_df.shape
+            'shape': merged_df.shape,
+            'date_range': {
+                'start': merged_df.index.min(),
+                'end': merged_df.index.max()
+            }
         }, f)
 
     # Also save as CSV for human inspection
     csv_path = os.path.join(cache_dir, 'raw_merged_data.csv')
     merged_df.to_csv(csv_path, index=True)
 
+    print(f"✓ Cache saved: {merged_df.shape[0]} rows, {merged_df.shape[1]} columns")
+    print(f"  Date range: {merged_df.index.min()} to {merged_df.index.max()}")
+    print(f"  Cache timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
     return cache_path
 
 
-def load_raw_data_cache(cache_path=RAW_DATA_CACHE):
+def load_raw_data_cache(cache_path=RAW_DATA_CACHE, max_age_hours=24):
+    """
+    Load cached data if it exists and is not too old.
+    
+    Args:
+        cache_path: Path to cache file
+        max_age_hours: Maximum age of cache in hours before it's considered stale
+                       Set to None to disable expiry check
+    
+    Returns:
+        DataFrame if cache is valid, None otherwise
+    """
     # Return None if cache doesn't exist
     if not os.path.exists(cache_path):
+        print("ℹ No cache found")
         return None
 
-    # Load and return the cached DataFrame
+    # Load and check cache age
     with open(cache_path, 'rb') as f:
         cache_data = pickle.load(f)
+    
+    cache_timestamp = cache_data.get('timestamp', datetime.min)
+    cache_age = datetime.now() - cache_timestamp
+    
+    print(f"ℹ Cache found:")
+    print(f"  Created: {cache_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Age: {cache_age.total_seconds() / 3600:.1f} hours")
+    print(f"  Shape: {cache_data['shape']}")
+    if 'date_range' in cache_data:
+        print(f"  Date range: {cache_data['date_range']['start']} to {cache_data['date_range']['end']}")
+    
+    # Check if cache is too old (if expiry is enabled)
+    if max_age_hours is not None and cache_age > timedelta(hours=max_age_hours):
+        print(f"⚠ Cache is stale (older than {max_age_hours} hours)")
+        return None
+    
+    print("✓ Using cached data")
     return cache_data['data']
 
 
@@ -55,6 +92,71 @@ def clear_cache(cache_dir=CACHE_DIR):
     if os.path.exists(cache_dir):
         import shutil
         shutil.rmtree(cache_dir)
+        print(f"✓ Cache cleared: {cache_dir}")
+
+
+def get_merged_data(join_type='inner', use_cache=True, force_refresh=False, 
+                    cache_max_age_hours=24):
+    """
+    Get merged market data with smart caching.
+    
+    Args:
+        join_type: How to merge dataframes ('inner' or 'outer')
+        use_cache: Whether to use cached data if available
+        force_refresh: If True, bypass cache and fetch fresh data
+        cache_max_age_hours: Maximum cache age in hours (None = never expire)
+    
+    Returns:
+        DataFrame with merged market data
+    """
+    print("\n" + "="*60)
+    print("LOADING MARKET DATA")
+    print("="*60)
+    
+    # Force refresh: clear cache and fetch new data
+    if force_refresh:
+        print("🔄 Force refresh enabled - fetching fresh data...")
+        clear_cache()
+        use_cache = False
+    
+    # Try to load from cache if enabled
+    cached_data = None
+    if use_cache:
+        cached_data = load_raw_data_cache(max_age_hours=cache_max_age_hours)
+    
+    # Return cached data if valid
+    if cached_data is not None:
+        print("="*60 + "\n")
+        return cached_data
+    
+    # Fetch fresh data if no valid cache
+    print("\n📡 Fetching fresh data from sources...")
+    stocks_df, indices_df, resources_df, stock_moving_averages_df, \
+        indice_moving_averages_df, resource_moving_averages_df = fetch_all_data()
+
+    # Merge all dataframes with prefixes
+    print("🔗 Merging dataframes...")
+    merged_df = merge_all_dataframes(
+        stocks_df, indices_df, resources_df,
+        stock_moving_averages_df, indice_moving_averages_df,
+        resource_moving_averages_df, join_type=join_type
+    )
+
+    # Clean missing values
+    print("🧹 Cleaning missing values...")
+    merged_df = handle_missing_values(merged_df)
+
+    # Save merged data to CSV for inspection
+    merged_df.to_csv('merged_data.csv', index=True)
+    print("✓ Saved to merged_data.csv")
+
+    # Save to cache for faster future loads
+    if use_cache:
+        print("\n💾 Saving to cache...")
+        save_raw_data_cache(merged_df)
+
+    print("="*60 + "\n")
+    return merged_df
 
 
 def merge_all_dataframes(stocks_df, indices_df, resources_df,
@@ -110,95 +212,53 @@ def handle_missing_values(df):
     return df_clean
 
 
-def get_merged_data(join_type='inner', use_cache=True, force_refresh=False):
-    # Try to load from cache if enabled and not forcing refresh
-    if use_cache and not force_refresh:
-        cached_data = load_raw_data_cache()
-        if cached_data is not None:
-            return cached_data
-
-    # Fetch all raw data from data sources
-    stocks_df, indices_df, resources_df, stock_moving_averages_df, indice_moving_averages_df, resource_moving_averages_df = fetch_all_data()
-
-    # Merge all dataframes with prefixes
-    merged_df = merge_all_dataframes(stocks_df, indices_df, resources_df,
-                                     stock_moving_averages_df, indice_moving_averages_df,
-                                     resource_moving_averages_df, join_type=join_type)
-
-    # Clean missing values
-    merged_df = handle_missing_values(merged_df)
-
-    # Save merged data to CSV for inspection
-    merged_df.to_csv('merged_data.csv', index=True)
-
-    # Save to cache for faster future loads
-    if use_cache:
-        save_raw_data_cache(merged_df)
-
-    return merged_df
-
+# ... rest of your functions remain the same ...
 
 def calculate_returns(df, method='log'):
-    # Calculate log returns (more suitable for HMM) or simple percentage returns
     if method == 'log':
         returns = np.log(df / df.shift(1))
     else:
         returns = df.pct_change()
-
-    # Remove first row which will be NaN due to shift
     return returns.dropna()
 
 
 def calculate_volatility(returns_df, window=20):
-    # Rolling standard deviation of returns as volatility measure
     return returns_df.rolling(window=window).std()
 
 
 def calculate_rsi(prices, period=14):
-    # Relative Strength Index: momentum oscillator (0-100)
-    # Measures speed and magnitude of price changes
     delta = prices.diff()
-
-    # Separate gains and losses
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
-    # Calculate relative strength and RSI
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
 
 def calculate_momentum(prices, period=10):
-    # Rate of change over specified period
     return prices.pct_change(periods=period)
 
 
 def calculate_market_breadth(returns_df):
-    # Aggregate market health indicators
     return pd.DataFrame({
-        'pct_positive': (returns_df > 0).sum(axis=1) / returns_df.shape[1],  # % of assets with positive returns
-        'avg_return': returns_df.mean(axis=1),  # Average return across all assets
-        'cross_sectional_vol': returns_df.std(axis=1)  # Dispersion of returns
+        'pct_positive': (returns_df > 0).sum(axis=1) / returns_df.shape[1],
+        'avg_return': returns_df.mean(axis=1),
+        'cross_sectional_vol': returns_df.std(axis=1)
     })
 
 
 def select_key_features(df, n_stocks=10, n_indices=5):
     selected_cols = []
-
-    # Select key market indices (S&P 500, NASDAQ, Dow Jones, Russell 2000, VIX)
     key_indices = [col for col in df.columns if any(idx in col for idx in ['GSPC', 'IXIC', 'DJI', 'RUT', 'VIX'])]
     selected_cols.extend(key_indices[:n_indices])
-
-    # Select priority stocks from major sectors (tech, finance, energy, healthcare, retail)
+    
     stock_cols = [col for col in df.columns if col.startswith('stock_') and '_ma_' not in col]
     priority_stocks = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'TSLA', 'JPM', 'XOM', 'JNJ', 'WMT']
     selected_stocks = [col for col in stock_cols if any(stock in col for stock in priority_stocks)][:n_stocks]
     selected_cols.extend(selected_stocks)
-
-    # Select commodity/resource columns (gold, oil, etc.)
+    
     resource_cols = [col for col in df.columns if col.startswith('resource_') and '_ma_' not in col]
     selected_cols.extend(resource_cols[:5])
-
+    
     return df[selected_cols]
 
 
@@ -206,149 +266,37 @@ def create_enhanced_features_custom(df, include_returns=True, include_volatility
                                    include_rsi=True, include_momentum=True,
                                    include_market_breadth=True,
                                    volatility_window=20, rsi_period=14, momentum_period=10):
-    # Build feature set based on flags (allows flexible feature engineering)
     features_list = []
-
-    # Calculate log returns (stationary and suitable for HMM)
     returns = calculate_returns(df, method='log')
-
-    # Add returns if requested
+    
     if include_returns:
         features_list.append(returns)
-
-    # Add rolling volatility for key assets
+    
     if include_volatility:
         volatility = calculate_volatility(returns, window=volatility_window)
         volatility.columns = [f"{col}_vol" for col in volatility.columns]
-        # Select subset to avoid too many features
         key_vol_cols = [col for col in volatility.columns if any(x in col for x in ['GSPC', 'IXIC', 'AAPL', 'MSFT', 'VIX'])][:10]
         features_list.append(volatility[key_vol_cols])
-
-    # Add market breadth indicators (cross-sectional stats)
+    
     if include_market_breadth:
         features_list.append(calculate_market_breadth(returns))
-
-    # Add technical indicators (RSI and momentum) for key price columns
+    
     if include_rsi or include_momentum:
         key_price_cols = [col for col in df.columns if any(x in col for x in ['GSPC', 'IXIC', 'AAPL', 'MSFT', 'VIX'])][:10]
-
+        
         if include_rsi:
-            # Calculate RSI for each key asset
             rsi_features = [calculate_rsi(df[col], period=rsi_period).rename(f"{col}_rsi")
                            for col in key_price_cols if col in df.columns]
             if rsi_features:
                 features_list.append(pd.concat(rsi_features, axis=1))
-
+        
         if include_momentum:
-            # Calculate momentum for each key asset
             momentum_features = [calculate_momentum(df[col], period=momentum_period).rename(f"{col}_momentum")
                                 for col in key_price_cols if col in df.columns]
             if momentum_features:
                 features_list.append(pd.concat(momentum_features, axis=1))
-
-    # Combine all features and drop rows with any NaN values
+    
     return pd.concat(features_list, axis=1).dropna()
-
-
-
-
-def apply_pca(features_df, n_components=20, variance_threshold=0.95):
-    # Normalize features before PCA to ensure all features contribute equally
-    scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features_df)
-
-    # Choose PCA mode: auto-select components by variance threshold or use fixed number
-    if n_components is None:
-        pca = PCA(n_components=variance_threshold, svd_solver='full')
-    else:
-        # Ensure we don't request more components than available features
-        pca = PCA(n_components=min(n_components, features_df.shape[1]))
-
-    # Transform features to principal components
-    features_pca = pca.fit_transform(features_scaled)
-
-    # Convert to DataFrame with descriptive column names (PC1, PC2, etc.)
-    pca_df = pd.DataFrame(
-        features_pca,
-        index=features_df.index,
-        columns=[f'PC{i+1}' for i in range(features_pca.shape[1])]
-    )
-
-    # Return PCA features, model, scaler, and variance explained by each component
-    return pca_df, pca, scaler, pca.explained_variance_ratio_
-
-
-def normalize_features(features_df, method='standard'):
-    # Select appropriate scaler based on method
-    # standard: zero mean, unit variance (sensitive to outliers)
-    # robust: uses median and IQR (resistant to outliers)
-    # minmax: scales to [0,1] range (sensitive to outliers)
-    if method == 'standard':
-        scaler = StandardScaler()
-    elif method == 'robust':
-        scaler = RobustScaler()
-    elif method == 'minmax':
-        scaler = MinMaxScaler()
-    else:
-        raise ValueError("method must be 'standard', 'robust', or 'minmax'")
-
-    # Fit scaler and transform features
-    features_normalized = scaler.fit_transform(features_df)
-
-    # Convert back to DataFrame to preserve index and column names
-    normalized_df = pd.DataFrame(
-        features_normalized,
-        index=features_df.index,
-        columns=features_df.columns
-    )
-
-    # Return normalized features and fitted scaler for future transforms
-    return normalized_df, scaler
-
-
-def prepare_hmm_features(join_type='inner', use_pca=True, n_components=20,
-                         scaling_method='robust', select_features=True,
-                         n_stocks=15, n_indices=5,
-                         volatility_window=20, rsi_period=14, momentum_period=10,
-                         save_to_csv=True, csv_filename='enhanced_features.csv'):
-    # Load and merge all market data (stocks, indices, resources, moving averages)
-    raw_data = get_merged_data(join_type=join_type)
-
-    # Optionally reduce feature set to key assets to reduce noise and computation
-    if select_features:
-        raw_data = select_key_features(raw_data, n_stocks=n_stocks, n_indices=n_indices)
-
-    # Engineer features: returns, volatility, RSI, momentum, market breadth
-    features = create_enhanced_features_custom(
-        raw_data,
-        include_returns=True,
-        include_volatility=True,
-        include_rsi=True,
-        include_momentum=True,
-        include_market_breadth=True,
-        volatility_window=volatility_window,
-        rsi_period=rsi_period,
-        momentum_period=momentum_period
-    )
-
-    # Save enhanced features before dimensionality reduction for later analysis
-    if save_to_csv:
-        features.to_csv(csv_filename, index=True)
-
-    # Optionally reduce dimensionality with PCA to capture key variance
-    pca_model = None
-    pca_scaler = None
-    if use_pca:
-        features, pca_model, pca_scaler, _ = apply_pca(
-            features,
-            n_components=n_components
-        )
-
-    # Final normalization to standardize feature scales for HMM
-    features_normalized, final_scaler = normalize_features(features, method=scaling_method)
-
-    # Return normalized features, scaler, and PCA model (if used)
-    return features_normalized, final_scaler, pca_model, pca_scaler
 
 
 def get_enhanced_features_for_model(join_type='inner', n_stocks=15, n_indices=5,
@@ -356,15 +304,24 @@ def get_enhanced_features_for_model(join_type='inner', n_stocks=15, n_indices=5,
                                    save_to_csv=True, csv_filename='merged_data_with_features.csv',
                                    include_returns=True, include_volatility=True,
                                    include_rsi=True, include_momentum=True,
-                                   include_market_breadth=True):
-    # Load and merge all market data
-    raw_data = get_merged_data(join_type=join_type)
-
-    # Reduce to key features to minimize noise
+                                   include_market_breadth=True,
+                                   force_refresh=False, cache_max_age_hours=24):
+    """
+    Get enhanced features with smart caching.
+    
+    Args:
+        force_refresh: If True, fetch fresh data
+        cache_max_age_hours: Maximum cache age (24 = daily refresh, None = never expire)
+    """
+    # Load with cache control
+    raw_data = get_merged_data(
+        join_type=join_type, 
+        force_refresh=force_refresh,
+        cache_max_age_hours=cache_max_age_hours
+    )
+    
     raw_data_selected = select_key_features(raw_data, n_stocks=n_stocks, n_indices=n_indices)
-
-    # Create enhanced features with configurable feature types
-    # This provides raw features without normalization or PCA for direct analysis
+    
     enhanced_features = create_enhanced_features_custom(
         raw_data_selected,
         include_returns=include_returns,
@@ -376,10 +333,8 @@ def get_enhanced_features_for_model(join_type='inner', n_stocks=15, n_indices=5,
         rsi_period=rsi_period,
         momentum_period=momentum_period
     )
-
-    # Optionally save enhanced features to CSV for inspection
+    
     if save_to_csv:
         enhanced_features.to_csv(csv_filename, index=True)
-
+    
     return enhanced_features
-
