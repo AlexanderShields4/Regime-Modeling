@@ -4,7 +4,14 @@
 
 ## Related Works:
 
+Recap and Methodological Specifications: 
+- To recap, most of the serious work in this space converges around a few non-negotiables. Gaussian Hidden Markov Models are the default. Two regimes dominate: bull vs. bear, or high vs. low vol. Going beyond that will likely cause overfitting. Within the Model, each state is characterized by distinct return and variance patterns, estimated via Expectation Maximization and decoded using the Viterbi algorithm to determine the most likely regime at each point in time.
+- Feature inputs are usually daily or weekly log returns, sometimes supplemented with realized volatility, macro indices, or rolling correlations. The model is trained either on an expanding or rolling window to adapt to structural market changes. Once regimes are identified, allocations are adjusted accordingly: portfolios tilt toward risk assets during favorable regimes and shift into defensive assets or cash in adverse ones. 
+Portfolio construction methods are fairly standardized. Many studies integrate regime‐specific mean-variance optimization or use fractional Kelly sizing based on regime‐conditioned expected returns and covariances. Risk management is embedded in the process. Position scaling or exposure limits are applied in high‐volatility regimes to control drawdown and Value‐at‐Risk.
+- Across the literature, the outcomes are consistent: lower drawdowns, smoother return distributions, and higher Sharpe ratios relative to static benchmarks. In short, the prevailing structure Gaussian HMM with 2-3 latent regimes, return‐based features, rolling retraining, and regime‐aware rebalancing has become the standardized blueprint for dynamic asset allocation.
+- Bench mark for success in papers: 20–30% reduction in drawdown vs. a static benchmark. Sharpe >1.5. Anything lower and it probably doesn’t hold up out-of-sample.
 
+\*Copied From Milestone 1 because was completed there
 
 ## Data Understanding and Preparation
 
@@ -51,6 +58,29 @@ momentum_period_range = [10, 20]
 
 train_ratio=0.8,
 - The percentage of the data that is used for training and the rest is used for testing.
+
+### Best Parameters
+```
+# Best HMM Configuration (from grid search)
+# Generated: 20251121_184852
+
+run_hmm_model(
+    n_stocks=7,
+    n_indices=0,
+    volatility_window=10,
+    rsi_period=21,
+    momentum_period=10,
+    include_returns=True,
+    include_volatility=True,
+    include_rsi=False,
+    include_momentum=True,
+    include_market_breadth=False,
+    n_iter=5000,
+    covariance_type='full',
+    random_state=42,
+    backtest=True
+)
+```
 
 
 
