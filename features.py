@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
 from pages_utils import fetch_all_data
-from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
-from sklearn.decomposition import PCA
 import pickle
 import os
 from datetime import datetime, timedelta

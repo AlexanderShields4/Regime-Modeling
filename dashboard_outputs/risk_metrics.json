@@ -1,37 +1,16 @@
 {
-  "Extreme Bull": {
-    "Average Return": 0.0038805353543421186,
-    "Volatility": 0.01249666522229866,
-    "Sharpe Ratio": 0.3041747704174991,
-    "Max Drawdown": -0.07136033001283175,
-    "Periods": 1004
+  " Bull": {
+    "Average Return": 0.0038616312532720166,
+    "Volatility": 0.01071617899736918,
+    "Sharpe Ratio": 0.35294914118507004,
+    "Max Drawdown": -0.09859699358784348,
+    "Periods": 1171
   },
-  "Moderate Bull": {
-    "Average Return": 0.0028079914984274735,
-    "Volatility": 0.006548375235675488,
-    "Sharpe Ratio": 0.41668754780527273,
-    "Max Drawdown": -0.05804151604499223,
-    "Periods": 1835
-  },
-  "Extreme Bear": {
-    "Average Return": 0.003982455611004927,
-    "Volatility": 0.008820542108732817,
-    "Sharpe Ratio": 0.44250007352445786,
-    "Max Drawdown": -0.06100859132127839,
-    "Periods": 658
-  },
-  "Moderate Bear": {
-    "Average Return": 0.009348665327895321,
-    "Volatility": 0.009869247467791054,
-    "Sharpe Ratio": 0.9392104391729177,
-    "Max Drawdown": -0.02532153617294264,
-    "Periods": 44
-  },
-  "Sideways": {
-    "Average Return": 0.0012915459805515137,
-    "Volatility": 0.025533238403960355,
-    "Sharpe Ratio": 0.04747462433117837,
-    "Max Drawdown": -0.2749755756362535,
-    "Periods": 213
+  " Bear": {
+    "Average Return": 0.0037766942957398845,
+    "Volatility": 0.02185654595895109,
+    "Sharpe Ratio": 0.16916347273346766,
+    "Max Drawdown": -0.2299812655200236,
+    "Periods": 324
   }
 }

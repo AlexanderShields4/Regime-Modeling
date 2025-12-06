@@ -199,15 +199,18 @@ class PortfolioBacktester:
 
     def apply_transaction_costs(self, old_weights, new_weights, portfolio_value):
         # Calculate transaction costs when rebalancing portfolio
+        # Only apply costs to stocks and bonds, not cash (cash moves are cost-free)
+        assets_to_charge = ['stocks', 'bonds']
         turnover = sum(abs(new_weights.get(asset, 0) - old_weights.get(asset, 0))
-                      for asset in set(list(old_weights.keys()) + list(new_weights.keys())))
+                      for asset in assets_to_charge)
 
         cost = turnover * portfolio_value * self.transaction_cost
         return cost
 
     def calculate_portfolio_value(self, weight_schedule, rebalance_dates):
         # Core portfolio simulation engine
-        # weight_schedule: dict of {date: {'stocks': weight, 'bonds': weight}}
+        # weight_schedule: dict of {date: {'stocks': weight, 'bonds': weight, 'cash': weight}}
+        # Cash earns risk-free rate (assumed 0% for simplicity, but can be adjusted)
 
         portfolio_values = pd.Series(index=self.dates, dtype=float)
         portfolio_values.iloc[0] = self.initial_capital
@@ -221,12 +224,12 @@ class PortfolioBacktester:
         first_date = self.dates[0]
         if first_date in weight_schedule:
             weights = weight_schedule[first_date]
-            stock_value = self.initial_capital * weights['stocks']
-            bond_value = self.initial_capital * weights['bonds']
+            stock_value = self.initial_capital * weights.get('stocks', 0.0)
+            bond_value = self.initial_capital * weights.get('bonds', 0.0)
+            cash = self.initial_capital * weights.get('cash', 0.0)
 
-            stock_shares = stock_value / self.stock_prices.iloc[0]
-            bond_shares = bond_value / self.bond_prices.iloc[0]
-            cash = 0.0
+            stock_shares = stock_value / self.stock_prices.iloc[0] if stock_value > 0 else 0.0
+            bond_shares = bond_value / self.bond_prices.iloc[0] if bond_value > 0 else 0.0
 
         # Simulate day by day
         for i in range(1, len(self.dates)):
@@ -245,26 +248,36 @@ class PortfolioBacktester:
                 # Calculate old weights
                 stock_value_old = stock_shares * self.stock_prices.iloc[i]
                 bond_value_old = bond_shares * self.bond_prices.iloc[i]
+                cash_old = cash
                 old_weights = {
                     'stocks': stock_value_old / current_value if current_value > 0 else 0,
-                    'bonds': bond_value_old / current_value if current_value > 0 else 0
+                    'bonds': bond_value_old / current_value if current_value > 0 else 0,
+                    'cash': cash_old / current_value if current_value > 0 else 0
                 }
 
-                # Apply transaction costs
+                # Apply transaction costs (only on stocks and bonds, not cash)
                 transaction_cost = self.apply_transaction_costs(old_weights, weights, current_value)
                 current_value -= transaction_cost
 
                 # Rebalance to target weights
-                target_stock_value = current_value * weights['stocks']
-                target_bond_value = current_value * weights['bonds']
+                target_stock_value = current_value * weights.get('stocks', 0.0)
+                target_bond_value = current_value * weights.get('bonds', 0.0)
+                cash = current_value * weights.get('cash', 0.0)
 
-                stock_shares = target_stock_value / self.stock_prices.iloc[i]
-                bond_shares = target_bond_value / self.bond_prices.iloc[i]
-                cash = 0.0
+                stock_shares = target_stock_value / self.stock_prices.iloc[i] if target_stock_value > 0 else 0.0
+                bond_shares = target_bond_value / self.bond_prices.iloc[i] if target_bond_value > 0 else 0.0
 
             # Update portfolio value
             portfolio_values.iloc[i] = current_value
 
+        return portfolio_values
+
+    def run_buy_stock_and_hold_strategy(self, stock_pct = 1.0, rebalance_freq='yearly'):
+        # Buy and hold strategy with annual rebalancing
+        rebalance_dates = self.get_rebalance_dates(rebalance_freq)
+        weight_schedule = {date: {'stocks': stock_pct, 'bonds': 0.0}
+                          for date in rebalance_dates}
+        portfolio_values = self.calculate_portfolio_value(weight_schedule, rebalance_dates)
         return portfolio_values
 
     def run_buy_and_hold_strategy(self, stock_pct=0.6, bond_pct=0.4, rebalance_freq='yearly'):
@@ -289,7 +302,7 @@ class PortfolioBacktester:
     def run_regime_based_strategy(self, regime_allocations, rebalance_freq='regime_change'):
         # HMM-driven allocation based on regime predictions
         # regime_allocations: dict mapping regime state to weights
-        # e.g., {0: {'stocks': 0.8, 'bonds': 0.2}, 1: {'stocks': 0.3, 'bonds': 0.7}, ...}
+        # e.g., {0: {'stocks': 0.8, 'bonds': 0.2, 'cash': 0.0}, 1: {'stocks': 0.0, 'bonds': 0.0, 'cash': 1.0}, ...}
 
         if self.regime_predictions is None:
             raise ValueError("regime_predictions required for regime-based strategy")
@@ -319,6 +332,10 @@ class PortfolioBacktester:
         # Strategy 2: Bond Only
         results['Bond Only 100%'] = self.run_bond_only_strategy()
         metrics['Bond Only 100%'] = self.metrics_calculator.get_all_metrics(results['Bond Only 100%'])
+
+        # Strategy 3: Buy Stock and Hold
+        results['Buy Stock and Hold 100%'] = self.run_buy_stock_and_hold_strategy(1.0, 'yearly')
+        metrics['Buy Stock and Hold 100%'] = self.metrics_calculator.get_all_metrics(results['Buy Stock and Hold 100%'])
 
         # Strategy 3: Regime-Based with different rebalancing frequencies
         rebalancing_frequencies = ['regime_change', 'monthly', 'quarterly']
