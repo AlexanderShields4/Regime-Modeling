@@ -175,21 +175,17 @@ class PortfolioVisualizer:
         # Dual-axis chart: regime background + portfolio value overlay
         fig, ax1 = plt.subplots(figsize=(14, 6))
 
-        # FIXED: Support 5 regimes (0-4) instead of just 3
+        # Support 3 regimes: Bull, Bear, Sideways
         regime_colors = {
-            0: 'lightgreen',      # Extreme Bull
-            1: 'palegreen',       # Moderate Bull
-            2: 'lightcoral',      # Extreme Bear
-            3: 'lightsalmon',     # Moderate Bear
-            4: 'lightgray'        # Sideways
+            0: 'lightgreen',      # Bull
+            1: 'lightcoral',      # Bear
+            2: 'lightgray'        # Sideways
         }
         
         regime_names = {
-            0: 'Extreme Bull',
-            1: 'Moderate Bull',
-            2: 'Extreme Bear',
-            3: 'Moderate Bear',
-            4: 'Sideways'
+            0: 'Bull',
+            1: 'Bear',
+            2: 'Sideways'
         }
 
         # Track which regimes we've added to legend

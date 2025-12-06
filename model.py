@@ -22,6 +22,93 @@ def _split_time_series_data(data, train_ratio=0.8):
     return train_data, test_data, split_idx
 
 
+def _get_walk_forward_splits(data, n_splits=5, train_ratio=0.8, min_train_size=None):
+    """
+    Generate walk-forward validation splits for time series data.
+    Each split tests on a different time period, ensuring the model is evaluated
+    across different market climates (bull, bear, sideways markets).
+    
+    Args:
+        data: DataFrame with time series data (chronologically ordered)
+        n_splits: Number of validation splits
+        train_ratio: Minimum ratio of data for training in each split
+        min_train_size: Minimum absolute size for training set (overrides train_ratio if needed)
+    
+    Returns:
+        List of (train_data, test_data, split_info) tuples
+    """
+    total_len = len(data)
+    test_size = int(total_len * (1 - train_ratio))
+    
+    # Ensure minimum training size
+    if min_train_size is None:
+        min_train_size = int(total_len * train_ratio)
+    
+    splits = []
+    
+    # Calculate how to distribute splits across the timeline
+    # We want to test on different periods to capture different market climates
+    available_test_space = total_len - min_train_size
+    if available_test_space < test_size:
+        # Not enough data for multiple splits, return single split
+        train_data = data.iloc[:min_train_size]
+        test_data = data.iloc[min_train_size:]
+        split_info = {
+            'split': 1,
+            'train_start': train_data.index[0],
+            'train_end': train_data.index[-1],
+            'test_start': test_data.index[0],
+            'test_end': test_data.index[-1],
+            'train_size': len(train_data),
+            'test_size': len(test_data)
+        }
+        return [(train_data, test_data, split_info)]
+    
+    # Distribute test periods across available space
+    # Each test period comes after its training period (true walk-forward)
+    step_size = available_test_space / (n_splits + 1)
+    
+    for i in range(n_splits):
+        # Calculate test period start (distributed across timeline)
+        # Start from min_train_size and move forward
+        test_start_idx = int(min_train_size + (i + 1) * step_size)
+        test_end_idx = test_start_idx + test_size
+        
+        # Ensure we don't go beyond data bounds
+        if test_end_idx > total_len:
+            test_end_idx = total_len
+            test_start_idx = test_end_idx - test_size
+        
+        # Ensure minimum training size before test period
+        if test_start_idx < min_train_size:
+            test_start_idx = min_train_size
+            test_end_idx = test_start_idx + test_size
+            if test_end_idx > total_len:
+                break
+        
+        # Split data: train on everything before test, test on selected period
+        train_data = data.iloc[:test_start_idx]
+        test_data = data.iloc[test_start_idx:test_end_idx]
+        
+        # Skip if test set is too small
+        if len(test_data) < test_size * 0.5:  # At least 50% of desired test size
+            continue
+        
+        split_info = {
+            'split': i + 1,
+            'train_start': train_data.index[0],
+            'train_end': train_data.index[-1],
+            'test_start': test_data.index[0],
+            'test_end': test_data.index[-1],
+            'train_size': len(train_data),
+            'test_size': len(test_data)
+        }
+        
+        splits.append((train_data, test_data, split_info))
+    
+    return splits
+
+
 def _analyze_regime_characteristics(states, data, n_states):
     """Analyze economic characteristics of each regime with 5-level classification."""
     
@@ -51,32 +138,27 @@ def _analyze_regime_characteristics(states, data, n_states):
         mean_return = regime_returns.mean()
         std_return  = regime_returns.std()
 
-        # ---- Thresholds (tweak if needed) ----
-        extreme_bull_thr = global_mean + 1.5 * global_std
-        moderate_bull_thr = global_mean + 0.3 * global_std
+        # Focus on absolute returns rather than relative to global mean
+        bull_thr = 0.001  # ~0.1% daily return (~26% annualized)
+        bear_thr = -0.010
 
-        extreme_bear_thr = global_mean - 1.5 * global_std
-        moderate_bear_thr = global_mean - 0.3 * global_std
-        
+        # Also consider Sharpe ratio for quality
+        bull_sharpe_thr = 0.5  # Minimum Sharpe ratio for bull
+        bear_sharpe_thr = -0.5  # Maximum Sharpe ratio for bear
+
         # ---- Classification ----
-        if mean_return >= extreme_bull_thr and std_return < global_std:
-            regime_types.append("Extreme Bull")
+        regime_sharpe = mean_return / std_return if std_return > 0 else 0
 
-        elif mean_return >= moderate_bull_thr:
-            regime_types.append("Moderate Bull")
+        if mean_return >= bull_thr and regime_sharpe >= bull_sharpe_thr:
+            regime_types.append("Bull")
 
-        elif mean_return <= extreme_bear_thr and std_return < global_std:
-            regime_types.append("Extreme Bear")
-
-        elif mean_return <= moderate_bear_thr:
-            regime_types.append("Moderate Bear")
+        elif mean_return <= bear_thr and regime_sharpe <= bear_sharpe_thr:
+            regime_types.append("Bear")
 
         else:
             regime_types.append("Sideways")
 
     return regime_types
-
-
 
 def _save_backtest_results(results, params):
     """Append backtest results to Results.md file."""
@@ -115,16 +197,12 @@ def _save_backtest_results(results, params):
     # Create regime allocation string
     regime_info = []
     for i, rtype in enumerate(results['regime_types']):
-        if rtype == "Extreme Bull":
-            alloc = "100/0"
-        elif rtype == 'Moderate Bull':
-            alloc = "75/25"
-        elif rtype == "Extreme Bear":
-            alloc = "0/100"
-        elif rtype == "Moderate Bear":
-            alloc = "25/75"
+        if rtype == "Bull":
+            alloc = "100/0/0"  # stocks/bonds/cash
+        elif rtype == "Bear":
+            alloc = "0/0/100"  # 100% cash (bonds can lose money too)
         else:
-            alloc = "50/50"
+            alloc = "80/20/0"  # stocks/bonds/cash
         regime_info.append(f"R{i}:{rtype}({alloc})")
     regime_str = " | ".join(regime_info)
 
@@ -150,7 +228,8 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
                   include_returns=True, include_volatility=True,
                   include_rsi=False, include_momentum=False,
                   include_market_breadth=False, backtest=False, train_ratio=0.8,
-                  n_iter=5000, covariance_type='full', random_state=42):
+                  n_iter=5000, covariance_type='full', random_state=42,
+                  walk_forward=True, n_splits=5):
     """
     Run HMM model with optional backtesting.
 
@@ -170,10 +249,13 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
         n_iter: Number of iterations for HMM training
         covariance_type: Type of covariance parameters to use ('full', 'tied', 'diag', 'spherical')
         random_state: Random state for reproducibility
+        walk_forward: If True, use walk-forward validation instead of single split
+        n_splits: Number of splits for walk-forward validation (default 5)
 
     Returns:
         If backtest=False: Tuple of (model, hidden_states, log_probability, features_df, scaler)
-        If backtest=True: Dictionary with backtest results
+        If backtest=True and walk_forward=False: Dictionary with backtest results
+        If backtest=True and walk_forward=True: Dictionary with aggregated walk-forward results
     """
     mode_str = "BACKTEST" if backtest else "TRAIN"
     print("\n" + "="*60)
@@ -200,8 +282,115 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
 
     print(f"Feature matrix shape: {data.shape}")
 
-    # Split data if backtesting
-    if backtest:
+    # Handle walk-forward validation
+    if backtest and walk_forward:
+        # Walk-forward validation mode
+        splits = _get_walk_forward_splits(data, n_splits=n_splits, train_ratio=train_ratio)
+        print(f"\nWalk-forward validation: {len(splits)} splits")
+        
+        all_results = []
+        for train_data, test_data, split_info in splits:
+            print(f"\n{'='*60}")
+            print(f"Split {split_info['split']}/{len(splits)}")
+            print(f"Train: {split_info['train_start']} to {split_info['train_end']} ({split_info['train_size']} samples)")
+            print(f"Test:  {split_info['test_start']} to {split_info['test_end']} ({split_info['test_size']} samples)")
+            print(f"{'='*60}")
+            
+            # Train model on this split's training data
+            scaler = StandardScaler()
+            train_scaled = scaler.fit_transform(train_data)
+            
+            n_states = 3
+            model = GaussianHMM(n_components=n_states, covariance_type=covariance_type, 
+                              n_iter=n_iter, random_state=random_state)
+            model.fit(train_scaled)
+            
+            # Evaluate on test set
+            test_scaled = scaler.transform(test_data)
+            test_log_prob = model.score(test_scaled)
+            test_states = model.predict(test_scaled)
+            
+            # Calculate metrics for this split
+            n_features = test_data.shape[1]
+            n_samples = len(test_data)
+            n_params_means = n_states * n_features
+            n_params_covars = n_states * n_features * (n_features + 1) // 2
+            n_params_transitions = n_states * (n_states - 1)
+            n_params = n_params_means + n_params_covars + n_params_transitions
+            
+            train_log_prob = model.score(train_scaled)
+            train_log_prob_avg = train_log_prob / len(train_scaled)
+            test_log_prob_avg = test_log_prob / len(test_scaled)
+            degradation = ((test_log_prob_avg - train_log_prob_avg) / train_log_prob_avg) * 100
+            
+            test_aic = -2 * test_log_prob + 2 * n_params
+            test_bic = -2 * test_log_prob + n_params * np.log(n_samples)
+            
+            regime_changes = np.sum(np.diff(test_states) != 0)
+            avg_regime_duration = len(test_states) / (regime_changes + 1)
+            
+            regime_types = _analyze_regime_characteristics(test_states, train_data, n_states)
+            
+            split_result = {
+                'split': split_info['split'],
+                'train_start': split_info['train_start'],
+                'train_end': split_info['train_end'],
+                'test_start': split_info['test_start'],
+                'test_end': split_info['test_end'],
+                'train_log_prob': train_log_prob,
+                'test_log_prob': test_log_prob,
+                'test_aic': test_aic,
+                'test_bic': test_bic,
+                'degradation': degradation,
+                'n_regime_changes': regime_changes,
+                'avg_regime_duration': avg_regime_duration,
+                'regime_types': regime_types,
+                'test_states': test_states,
+                'test_data': test_data
+            }
+            
+            all_results.append(split_result)
+            
+            print(f"  Degradation: {degradation:.1f}% | Duration: {avg_regime_duration:.1f} | Changes: {regime_changes}")
+        
+        # Aggregate results across all splits
+        print(f"\n{'='*60}")
+        print("WALK-FORWARD VALIDATION SUMMARY")
+        print(f"{'='*60}")
+        
+        avg_degradation = np.mean([r['degradation'] for r in all_results])
+        avg_duration = np.mean([r['avg_regime_duration'] for r in all_results])
+        avg_changes = np.mean([r['n_regime_changes'] for r in all_results])
+        std_degradation = np.std([r['degradation'] for r in all_results])
+        
+        print(f"Average Degradation: {avg_degradation:.1f}% (std: {std_degradation:.1f}%)")
+        print(f"Average Regime Duration: {avg_duration:.1f} periods")
+        print(f"Average Regime Changes: {avg_changes:.1f}")
+        
+        # Decision based on average performance
+        if avg_degradation < 10 and 5 <= avg_duration <= 50:
+            decision = "✅ READY FOR PORTFOLIO"
+        elif avg_degradation < 30:
+            decision = "⚠️ USE WITH CAUTION"
+        else:
+            decision = "❌ NOT RECOMMENDED"
+        
+        print(f"\nDecision: {decision}")
+        
+        # Return aggregated results
+        return {
+            'walk_forward': True,
+            'n_splits': len(all_results),
+            'splits': all_results,
+            'avg_degradation': avg_degradation,
+            'std_degradation': std_degradation,
+            'avg_regime_duration': avg_duration,
+            'avg_regime_changes': avg_changes,
+            'decision': decision
+        }
+    
+    # Standard single split backtesting
+    elif backtest:
         train_data, test_data, split_idx = _split_time_series_data(data, train_ratio)
         print(f"Train: {len(train_data)} samples | Test: {len(test_data)} samples")
         print(f"Split date: {data.index[split_idx]}")
@@ -216,7 +405,7 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
     print(f"Scaled data shape: {obs_scaled.shape}")
 
     # Define market states
-    states = ["Extreme Bull Market", "Moderate Bull Market", "Moderate Bear Market", "Extreme Bear Market", "Sideways Market"]
+    states = ["Bull Market", "Bear Market", "Sideways Market"]
     n_states = len(states)
 
     print(f"\nStep 3: Training HMM with {n_states} states...")
@@ -239,11 +428,21 @@ def run_hmm_model(n_stocks=10, n_indices=5, volatility_window=20,
 
         print(f'\nLog Probability: {log_probability:.2f}')
 
-        # Print state distribution
+        # Analyze regime characteristics to get labels
+        n_states = len(np.unique(hidden_states))
+        regime_types = _analyze_regime_characteristics(hidden_states, data, n_states)
+        
+        # Print state distribution (raw HMM states - these don't change with thresholds)
         state_counts = np.bincount(hidden_states)
-        print("\nState distribution:")
+        print("\nState distribution (raw HMM assignments):")
         for i, count in enumerate(state_counts):
             print(f"  State {i}: {count} periods ({count/len(hidden_states)*100:.1f}%)")
+        
+        # Print regime label distribution (this changes with thresholds)
+        print("\nRegime label distribution (based on thresholds):")
+        for i, label in enumerate(regime_types):
+            count = state_counts[i]
+            print(f"  {label} (State {i}): {count} periods ({count/len(hidden_states)*100:.1f}%)")
 
         # Generate dashboard outputs
         print("\nStep 5: Generating dashboard outputs...")
@@ -1015,28 +1214,21 @@ def generate_dashboard_outputs(model, data, hidden_states, scaler=None, backtest
     # Regime names & colors
     # -------------------------
     regime_names = [
-        'Extreme Bull',
-        'Moderate Bull',
-        'Extreme Bear',
-        'Moderate Bear',
+        'Bull', 'Bear',
         'Sideways'
     ]
 
     # color map keyed by regime name (rgba for vrect translucency)
     color_map = {
-        'Extreme Bull': 'rgba(0,200,0,0.25)',      # bright green
-        'Moderate Bull': 'rgba(0,120,0,0.25)',     # darker green
-        'Extreme Bear': 'rgba(220,0,0,0.25)',      # bright red
-        'Moderate Bear': 'rgba(140,0,0,0.25)',     # darker red
+        'Bull': 'rgba(0,200,0,0.25)',      # bright green
+        'Bear': 'rgba(220,0,0,0.25)',      # bright red
         'Sideways': 'rgba(120,120,120,0.25)'       # grey
     }
 
     # marker colors for legend (opaque)
     marker_map = {
-        'Extreme Bull': 'green',
-        'Moderate Bull': 'darkgreen',
-        'Extreme Bear': 'red',
-        'Moderate Bear': 'darkred',
+        'Bull': 'green',
+        'Bear': 'darkred',
         'Sideways': 'gray'
     }
 
@@ -1102,35 +1294,28 @@ def generate_dashboard_outputs(model, data, hidden_states, scaler=None, backtest
 
     regime_stats = {
         'Total Periods': total_periods,
-        'Extreme Bull Periods': counts['Extreme Bull'],
-        'Moderate Bull Periods': counts['Moderate Bull'],
-        'Extreme Bear Periods': counts['Extreme Bear'],
-        'Moderate Bear Periods': counts['Moderate Bear'],
+        'Bull Periods': counts['Bull'],
+        'Bear Periods': counts['Bear'],
         'Sideways Periods': counts['Sideways'],
         'Regime Changes': int(np.sum(np.diff(hidden_states) != 0)),
         'Average Duration': float(total_periods / (np.sum(np.diff(hidden_states) != 0) + 1)) if total_periods > 0 else 0.0
     }
 
     # percentages
-    for key in ['Extreme Bull', 'Moderate Bull', 'Extreme Bear', 'Moderate Bear', 'Sideways']:
+    for key in ['Bull', 'Bear', 'Sideways']:
         regime_stats[f'{key} %'] = f"{(regime_stats[f'{key} Periods'] / total_periods * 100):.1f}%" if total_periods > 0 else "0.0%"
 
     # -------------------------
     # Regime distribution pie (Plotly)
     # -------------------------
-    pie_labels = [
-        'Extreme Bull Market', 'Moderate Bull Market', 'Extreme Bear Market',
-        'Moderate Bear Market', 'Sideways Market'
-    ]
+    pie_labels = ['Bull Market',  'Bear Market', 'Sideways Market']
+
     pie_values = [
-        regime_stats['Extreme Bull Periods'],
-        regime_stats['Moderate Bull Periods'],
-        regime_stats['Extreme Bear Periods'],
-        regime_stats['Moderate Bear Periods'],
+        regime_stats['Bull Periods'],
+        regime_stats['Bear Periods'],
         regime_stats['Sideways Periods']
     ]
-    pie_colors = [marker_map['Extreme Bull'], marker_map['Moderate Bull'],
-                  marker_map['Extreme Bear'], marker_map['Moderate Bear'],
+    pie_colors = [marker_map['Bull'], marker_map['Bear'],
                   marker_map['Sideways']]
 
     fig_pie = go.Figure(data=[go.Pie(labels=pie_labels, values=pie_values, marker=dict(colors=pie_colors), sort=False)])
@@ -1141,15 +1326,17 @@ def generate_dashboard_outputs(model, data, hidden_states, scaler=None, backtest
     # Portfolio allocations CSV + bar chart
     # -------------------------
     allocations = pd.DataFrame({
-        'Regime': ['Extreme Bull Market', 'Moderate Bull Market', 'Extreme Bear Market', 'Moderate Bear Market', 'Sideways Market'],
-        'Stock %': [100, 75, 0, 25, 50],
-        'Bond %': [0, 25, 100, 75, 50],
+        'Regime': ['Bull Market', 'Bear Market', 'Sideways Market'],
+        'Stock %': [100, 0, 100],
+        'Bond %': [0, 0, 0],
+        'Cash %': [0, 100, 0]
     })
     allocations.to_csv(f'{output_dir}/portfolio_allocations.csv', index=False)
 
     fig_alloc = go.Figure(data=[
-        go.Bar(name='Stocks', x=allocations['Regime'], y=allocations['Stock %'], marker_color=marker_map['Extreme Bull']),
-        go.Bar(name='Bonds', x=allocations['Regime'], y=allocations['Bond %'], marker_color=marker_map['Moderate Bear'])
+        go.Bar(name='Stocks', x=allocations['Regime'], y=allocations['Stock %'], marker_color=marker_map['Bull']),
+        go.Bar(name='Bonds', x=allocations['Regime'], y=allocations['Bond %'], marker_color=marker_map['Bear']),
+        go.Bar(name='Cash', x=allocations['Regime'], y=allocations['Cash %'], marker_color='gold')
     ])
     fig_alloc.update_layout(
         title='Recommended Portfolio Allocation by Regime',
@@ -1239,7 +1426,7 @@ def calculate_risk_metrics(data, hidden_states):
     # Calculate metrics for each regime
     risk_metrics = {}
 
-    for regime, name in enumerate(['Extreme Bull', 'Moderate Bull', 'Extreme Bear', 'Moderate Bear', 'Sideways']):
+    for regime, name in enumerate([' Bull', ' Bull', ' Bear', ' Bear', 'Sideways']):
         mask = hidden_states == regime
         if np.sum(mask) == 0:
             continue
@@ -1309,6 +1496,29 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
     stock_data = stock_data.loc[common_dates]
     aligned_regime_predictions = hidden_states[:len(common_dates)]
 
+    # Analyze regime characteristics to get labels based on thresholds
+    # This determines which state index corresponds to which regime label
+    n_states = len(np.unique(hidden_states))
+    regime_types = _analyze_regime_characteristics(aligned_regime_predictions, data.loc[common_dates], n_states)
+    
+    # Create mapping from state index to label
+    state_to_label = {i: regime_types[i] for i in range(n_states)}
+    
+    # Define allocations by LABEL (not by state index) - this allows thresholds to affect allocations
+    allocation_by_label = {
+        'Bull': {'stocks': 1.0, 'bonds': 0.0, 'cash': 0.0},  # Bull: 100% stocks
+        'Bear': {'stocks': 0.0, 'bonds': 0.0, 'cash': 1.0},  # Bear: 100% cash (bonds can lose money too)
+        'Sideways': {'stocks': 0.8, 'bonds': 0.2, 'cash': 0.0},  # Sideways: 80% stocks, 20% bonds
+        'Unknown': {'stocks': 0.5, 'bonds': 0.5, 'cash': 0.0}  # Default for unknown regimes
+    }
+    
+    # Map state indices to allocations based on their labels
+    # This ensures allocations change when thresholds change the labeling
+    regime_allocations = {}
+    for state_idx in range(n_states):
+        label = state_to_label.get(state_idx, 'Unknown')
+        regime_allocations[state_idx] = allocation_by_label.get(label, allocation_by_label['Unknown'])
+
     # Initialize backtester
     backtester = PortfolioBacktester(
         stock_data=stock_data.iloc[:, 0] if isinstance(stock_data, pd.DataFrame) else stock_data,
@@ -1317,15 +1527,6 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
         transaction_cost=0.001,  # 0.1%
         initial_capital=100000
     )
-
-    # Define regime allocations
-    regime_allocations = {
-        0: {'stocks': 1.0, 'bonds': 0.0}, 
-        1: {'stocks': 0.75, 'bonds': 0.25},  
-        2: {'stocks': 0.0, 'bonds': 1.0},
-        3: {'stocks': 0.25, 'bonds': 0.75},
-        4: {'stocks': 0.5, 'bonds': 0.5} 
-    }
 
     # Run all strategies and compare
     comparison_results = backtester.compare_all_strategies(regime_allocations)
@@ -1366,12 +1567,14 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
     for i, date in enumerate(common_dates):
         regime = int(aligned_regime_predictions[i])
         allocation = regime_allocations[regime]
+        regime_label = state_to_label.get(regime, 'Unknown')
         regime_allocation_history.append({
             'Date': date,
             'Regime': regime,
-            'Regime_Name': ['Extreme Bull', "Moderate Bull", 'Extreme Bear', 'Moderate Bear', 'Sideways'][regime],
+            'Regime_Name': regime_label,  # Use actual label from threshold analysis
             'Stock_Pct': allocation['stocks'],
-            'Bond_Pct': allocation['bonds']
+            'Bond_Pct': allocation.get('bonds', 0.0),
+            'Cash_Pct': allocation.get('cash', 0.0)
         })
     regime_alloc_df = pd.DataFrame(regime_allocation_history)
     regime_alloc_df.to_csv(f'{output_dir}/data/regime_allocations.csv', index=False)
@@ -1386,13 +1589,8 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
         'rebalancing_frequencies': ['regime_change', 'monthly', 'quarterly'],
         'best_strategy': f'Regime-Based ({best_rebalance_freq})' if best_rebalance_freq else None,
         'transaction_cost': 0.001,
-        'regime_allocations': {
-            'Extreme Bull': {'stocks': 1.0, 'bonds': 0.0},
-            'Moderate Bull': {'stocks': 0.75, 'bonds': 0.25},
-            'Extreme Bear': {'stocks': 0.0, 'bonds': 1.0},
-            'Moderate Bear': {'stocks': 0.25, 'bonds': 0.75},
-            'Sideways': {'stocks': 0.5, 'bonds': 0.5}
-        },
+        'regime_allocations': allocation_by_label,  # Use label-based allocations
+        'state_to_label_mapping': state_to_label,  # Show which state maps to which label
         'chart_files': chart_files
     }
 

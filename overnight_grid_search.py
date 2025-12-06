@@ -51,26 +51,38 @@ if __name__ == "__main__":
     print("-"*70)
 
     # Define comprehensive parameter ranges
-    n_stocks_range = [5, 7, 10, 15, 20]
-    n_indices_range = [0, 3, 5]
-    volatility_window_range = [10, 20, 30]
-    rsi_period_range = [14, 21]
-    momentum_period_range = [10, 20]
+    # Expanded ranges for more thorough exploration
+    
+    # Asset selection - more granular options
+    n_stocks_range = [5, 7, 10, 12, 15, 18, 20]
+    n_indices_range = [0, 2, 3, 5, 7]
+    
+    # Feature engineering windows - wider range
+    volatility_window_range = [10, 15, 20, 25, 30, 40]
+    rsi_period_range = [10, 14, 18, 21, 28]
+    momentum_period_range = [5, 10, 15, 20, 25]
+    
+    # HMM training parameters
+    n_iter_range = [3000, 5000, 7000]  # More iterations for better convergence
+    covariance_type_range = ['full', 'tied']  # Test different covariance structures
 
     # Calculate total configurations
     # Using 'auto' feature combinations = 6 combos
     total_configs = (len(n_stocks_range) * len(n_indices_range) *
                     len(volatility_window_range) * len(rsi_period_range) *
-                    len(momentum_period_range) * 6)
+                    len(momentum_period_range) * len(n_iter_range) *
+                    len(covariance_type_range) * 6)
 
     print(f"\nn_stocks: {n_stocks_range}")
     print(f"n_indices: {n_indices_range}")
     print(f"volatility_window: {volatility_window_range}")
     print(f"rsi_period: {rsi_period_range}")
     print(f"momentum_period: {momentum_period_range}")
+    print(f"n_iter: {n_iter_range}")
+    print(f"covariance_type: {covariance_type_range}")
     print(f"feature_combinations: 6 (auto-selected)")
 
-    print(f"\nTotal configurations to test: {total_configs}")
+    print(f"\nTotal configurations to test: {total_configs:,}")
 
     # Estimate time
     avg_time_per_config = 15  # seconds (conservative estimate)
@@ -93,6 +105,8 @@ if __name__ == "__main__":
         volatility_window_range=volatility_window_range,
         rsi_period_range=rsi_period_range,
         momentum_period_range=momentum_period_range,
+        n_iter_range=n_iter_range,
+        covariance_type_range=covariance_type_range,
         feature_combinations='auto',     # 6 smart feature combinations
         train_ratio=0.8,
         n_processes=None,                # Use all available cores minus 1

@@ -3,3 +3,16 @@ pandas==2.3.3
 streamlit==1.50.0
 hmmlearn
 numpy
+plotly
+matplotlib
+scikit-learn
+cvxpy
+statsmodels
+tqdm
+yfinance
+pandas
+streamlit
+hmmlearn
+numpy
+plotly
+matplotlib
