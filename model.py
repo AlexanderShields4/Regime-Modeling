@@ -519,10 +519,9 @@ def compare_feature_combinations(n_stocks=15, n_indices=5, volatility_window=20,
                 include_market_breadth=combo['market_breadth']
             )
 
-            # Scale data for metrics calculation
-            from sklearn.preprocessing import StandardScaler
-            scaler_temp = StandardScaler()
-            data_scaled = scaler_temp.fit_transform(data)
+            # Scale data for metrics calculation using the scaler from the trained model
+            # This ensures consistent scaling between training and evaluation
+            data_scaled = scaler.transform(data)
 
             # Calculate metrics
             metrics = calculate_model_metrics(model, data_scaled, data.shape[1])

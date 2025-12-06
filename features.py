@@ -192,21 +192,18 @@ def handle_missing_values(df):
     cols_to_keep = nan_fraction[nan_fraction <= 0.5].index
     df_clean = df_clean[cols_to_keep]
 
-    # Fill moving average columns with backward then forward fill
+    # Fill missing values using forward fill only (no backward fill to avoid data leakage)
+    # Forward fill uses past data, which is safe for time series
     ma_cols = [col for col in df_clean.columns if '_ma_' in col]
     if ma_cols:
-        df_clean[ma_cols] = df_clean[ma_cols].fillna(method='bfill').fillna(method='ffill')
+        df_clean[ma_cols] = df_clean[ma_cols].fillna(method='ffill')
 
-    # Fill price columns with forward then backward fill (prefer recent data)
+    # Fill price columns with forward fill only
     price_cols = [col for col in df_clean.columns if '_ma_' not in col]
     if price_cols:
-        df_clean[price_cols] = df_clean[price_cols].fillna(method='ffill').fillna(method='bfill')
+        df_clean[price_cols] = df_clean[price_cols].fillna(method='ffill')
 
-    # Interpolate any remaining gaps linearly
-    if df_clean.isnull().sum().sum() > 0:
-        df_clean = df_clean.interpolate(method='linear', axis=0)
-
-    # Drop any rows still containing NaN values
+    # Drop any rows still containing NaN values (safer than interpolation which uses future data)
     df_clean = df_clean.dropna(axis=0)
 
     return df_clean
