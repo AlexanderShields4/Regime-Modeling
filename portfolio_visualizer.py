@@ -174,22 +174,35 @@ class PortfolioVisualizer:
         return self.save_figure(fig, save_path)
 
     def plot_regime_timeline_portfolio(self, regime_predictions, stock_market_data,
-                                      dates, save_path='regime_timeline_portfolio.png'):
+                                      dates, save_path='regime_timeline_portfolio.png',
+                                      regime_labels_map=None):
         # Dual-axis chart: regime background + stock market overlay
         fig, ax1 = plt.subplots(figsize=(14, 6))
 
-        # Support 3 regimes: Bull, Bear, Sideways
-        regime_colors = {
-            0: 'lightgreen',      # Bull
-            1: 'lightcoral',      # Bear
-            2: 'lightgray'        # Sideways
+        # Load actual regime labels from regime_allocations.csv if not provided
+        if regime_labels_map is None:
+            try:
+                import pandas as pd
+                regime_alloc = pd.read_csv('dashboard_outputs/backtest_results/data/regime_allocations.csv')
+                # Create mapping from regime number to regime name
+                regime_labels_map = regime_alloc.groupby('Regime')['Regime_Name'].first().to_dict()
+            except:
+                # Fallback to default mapping if file doesn't exist
+                regime_labels_map = {0: 'Sideways', 1: 'Bull', 2: 'Bear'}
+
+        # Assign colors based on regime NAME (not number)
+        # This ensures colors match the actual regime characteristics
+        name_to_color = {
+            'Bull': 'lightgreen',      # Green for bull markets
+            'Bear': 'lightcoral',      # Red for bear markets
+            'Sideways': 'lightgray'    # Gray for sideways/choppy
         }
 
-        regime_names = {
-            0: 'Bull',
-            1: 'Bear',
-            2: 'Sideways'
-        }
+        # Create regime colors dict using actual labels
+        regime_colors = {num: name_to_color.get(name, 'lightgray')
+                        for num, name in regime_labels_map.items()}
+
+        regime_names = regime_labels_map
 
         # Track which regimes we've added to legend
         added_to_legend = set()
