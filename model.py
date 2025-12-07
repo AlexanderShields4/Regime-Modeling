@@ -93,25 +93,35 @@ def _analyze_regime_characteristics(states, data, n_states):
 
 
 
-    # Use relative ranking instead of absolute thresholds
-    # Sort by mean returns to classify Bull (highest) vs Bear (lowest) vs Sideways (middle)
+    # Use financial market standard: classify by return/volatility characteristics
+    # Bull: High returns + Low volatility (stable uptrend)
+    # Bear: Low/negative returns + High volatility (unstable downtrend)
+    # Sideways: Medium returns + Medium volatility (choppy/ranging)
+
     valid_regimes = [(i, stats) for i, stats in enumerate(regime_stats) if stats['count'] > 0]
 
     if len(valid_regimes) == 0:
         return ["Unknown"] * n_states
 
-    # Sort by mean return (descending) - highest return = Bull, lowest = Bear
-    sorted_regimes = sorted(valid_regimes, key=lambda x: x[1]['mean_return'], reverse=True)
+    # Calculate regime quality score: Sharpe ratio (return/risk)
+    # This naturally combines returns and volatility
+    # High Sharpe = Bull (good return per unit of risk)
+    # Low Sharpe = Bear (poor return per unit of risk)
+    # Medium Sharpe = Sideways
 
-    # Assign labels based on relative performance
+    sorted_regimes = sorted(valid_regimes, key=lambda x: x[1]['sharpe'], reverse=True)
+
+    # Assign labels based on risk-adjusted performance
     regime_labels = {}
     if len(sorted_regimes) == 3:
-        # Highest return = Bull, Lowest = Bear, Middle = Sideways
+        # Best Sharpe (high return/low vol) = Bull
+        # Worst Sharpe (low return/high vol) = Bear
+        # Middle = Sideways
         regime_labels[sorted_regimes[0][0]] = "Bull"
         regime_labels[sorted_regimes[1][0]] = "Sideways"
         regime_labels[sorted_regimes[2][0]] = "Bear"
     elif len(sorted_regimes) == 2:
-        # Highest = Bull, Lowest = Bear
+        # Best = Bull, Worst = Bear
         regime_labels[sorted_regimes[0][0]] = "Bull"
         regime_labels[sorted_regimes[1][0]] = "Bear"
     else:
