@@ -51,7 +51,7 @@ def main():
 
     try:
         merged_data = get_merged_data(
-            join_type='inner',
+            join_type='outer',  # Use outer join to get full historical range back to 2000
             use_cache=False if args.refresh else True,
             force_refresh=args.refresh
         )

@@ -39,11 +39,22 @@ class PortfolioMetrics:
 
     def calculate_sharpe_ratio(self, returns):
         # Risk-adjusted return (Sharpe ratio)
+        # Drop NA and use daily geometric risk-free rate
+        returns = returns.dropna()
+        if len(returns) == 0:
+            return float('nan')
+
+        # excess returns (daily)
         excess_returns = returns - self.daily_rf_rate
-        if returns.std() == 0:
-            return 0.0
-        sharpe = excess_returns.mean() / returns.std() * np.sqrt(252)  # Annualized
-        return sharpe
+
+        vol = returns.std()
+        if vol == 0 or np.isnan(vol):
+            # Undefined Sharpe (zero volatility) -> return NaN so caller can handle/display appropriately
+            return float('nan')
+
+        # Annualized Sharpe: mean excess daily return / daily std * sqrt(252)
+        sharpe = (excess_returns.mean() / vol) * np.sqrt(252)
+        return float(sharpe)
 
     def calculate_sortino_ratio(self, returns):
         # Downside risk-adjusted return (Sortino ratio)
@@ -173,6 +184,18 @@ class PortfolioBacktester:
                     current_month = date.month
             return rebalance_dates
 
+        elif frequency == 'weekly':
+            # Rebalance first trading day of each week
+            rebalance_dates = []
+            current_week = None
+            for date in dates:
+                week = date.isocalendar()[1]  # ISO week number
+                year_week = (date.year, week)
+                if current_week is None or year_week != current_week:
+                    rebalance_dates.append(date)
+                    current_week = year_week
+            return rebalance_dates
+
         elif frequency == 'quarterly':
             # Rebalance first trading day of each quarter
             rebalance_dates = []
@@ -299,6 +322,48 @@ class PortfolioBacktester:
         portfolio_values = self.calculate_portfolio_value(weight_schedule, rebalance_dates)
         return portfolio_values
 
+    def get_weighted_average_regime(self, end_idx, lookback_days):
+        # Calculate weighted average regime over a lookback period
+        # Returns the regime allocation as a weighted blend of regime allocations
+
+        start_idx = max(0, end_idx - lookback_days)
+        regime_slice = self.regime_predictions[start_idx:end_idx + 1]
+
+        if len(regime_slice) == 0:
+            return int(self.regime_predictions[end_idx])
+
+        # Count occurrences of each regime
+        unique_regimes, counts = np.unique(regime_slice, return_counts=True)
+
+        # Find regime with highest count (most common)
+        most_common_idx = np.argmax(counts)
+        return int(unique_regimes[most_common_idx])
+
+    def get_weighted_regime_allocation(self, end_idx, lookback_days, regime_allocations):
+        # Calculate weighted average allocation based on regime distribution over lookback period
+        # This creates a blended allocation that's a product of weighted average of regime predictions
+
+        start_idx = max(0, end_idx - lookback_days)
+        regime_slice = self.regime_predictions[start_idx:end_idx + 1]
+
+        if len(regime_slice) == 0:
+            regime = int(self.regime_predictions[end_idx])
+            return regime_allocations[regime]
+
+        # Count occurrences of each regime and calculate weights
+        unique_regimes, counts = np.unique(regime_slice, return_counts=True)
+        weights = counts / len(regime_slice)
+
+        # Create weighted average allocation
+        weighted_allocation = {'stocks': 0.0, 'bonds': 0.0, 'cash': 0.0}
+
+        for regime, weight in zip(unique_regimes, weights):
+            regime_alloc = regime_allocations[int(regime)]
+            for asset in weighted_allocation.keys():
+                weighted_allocation[asset] += regime_alloc.get(asset, 0.0) * weight
+
+        return weighted_allocation
+
     def run_regime_based_strategy(self, regime_allocations, rebalance_freq='regime_change'):
         # HMM-driven allocation based on regime predictions
         # regime_allocations: dict mapping regime state to weights
@@ -311,10 +376,27 @@ class PortfolioBacktester:
 
         # Create weight schedule based on regime at each rebalance date
         weight_schedule = {}
+
+        # Define lookback periods for different frequencies
+        lookback_map = {
+            'weekly': 5,      # ~5 trading days per week
+            'monthly': 21,    # ~21 trading days per month
+            'quarterly': 63   # ~63 trading days per quarter
+        }
+
         for date in rebalance_dates:
             date_idx = self.dates.get_loc(date)
-            regime = int(self.regime_predictions[date_idx])
-            weight_schedule[date] = regime_allocations[regime]
+
+            # For weekly, monthly, quarterly: use weighted average of previous period's regimes
+            if rebalance_freq in lookback_map:
+                lookback_days = lookback_map[rebalance_freq]
+                weight_schedule[date] = self.get_weighted_regime_allocation(
+                    date_idx, lookback_days, regime_allocations
+                )
+            else:
+                # For regime_change and other frequencies: use current regime
+                regime = int(self.regime_predictions[date_idx])
+                weight_schedule[date] = regime_allocations[regime]
 
         portfolio_values = self.calculate_portfolio_value(weight_schedule, rebalance_dates)
         return portfolio_values
@@ -338,7 +420,7 @@ class PortfolioBacktester:
         metrics['Buy Stock and Hold 100%'] = self.metrics_calculator.get_all_metrics(results['Buy Stock and Hold 100%'])
 
         # Strategy 3: Regime-Based with different rebalancing frequencies
-        rebalancing_frequencies = ['regime_change', 'monthly', 'quarterly']
+        rebalancing_frequencies = ['regime_change', 'weekly', 'monthly', 'quarterly']
         regime_strategies = {}
 
         for freq in rebalancing_frequencies:

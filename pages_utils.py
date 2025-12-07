@@ -5,10 +5,10 @@ def fetch_all_data():
     from data.natural_resources import load_resources
     from data.moving_averages import calculate_moving_averages
 
-    # Load data (all functions already return DataFrames)
-    stocks_df = load_individual_stocks(period="15y", interval="1d")
-    indices_df = load_indices(period="15y", interval="1d")
-    resources_df = load_resources(period="15y", interval="1d")
+    # Load data 
+    stocks_df = load_individual_stocks(interval="1d")
+    indices_df = load_indices(interval="1d")
+    resources_df = load_resources(interval="1d")
 
     # Calculate moving averages (returns DataFrames)
     stock_moving_averages_df = calculate_moving_averages(stocks_df)

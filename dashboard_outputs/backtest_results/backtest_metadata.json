@@ -1,7 +1,7 @@
 {
-  "run_timestamp": "2025-12-06T14:30:39.040519",
+  "run_timestamp": "2025-12-07T00:48:04.095205",
   "date_range": {
-    "start": "2015-08-28 00:00:00",
+    "start": "2020-10-08 00:00:00",
     "end": "2025-12-05 00:00:00"
   },
   "strategies": [
@@ -9,6 +9,7 @@
     "Bond Only 100%",
     "Buy Stock and Hold 100%",
     "Regime-Based (regime_change)",
+    "Regime-Based (weekly)",
     "Regime-Based (monthly)",
     "Regime-Based (quarterly)"
   ],
@@ -17,7 +18,7 @@
     "monthly",
     "quarterly"
   ],
-  "best_strategy": "Regime-Based (quarterly)",
+  "best_strategy": "Regime-Based (weekly)",
   "transaction_cost": 0.001,
   "regime_allocations": {
     "Bull": {
@@ -27,18 +28,18 @@
     },
     "Bear": {
       "stocks": 0.0,
-      "bonds": 0.0,
-      "cash": 1.0
+      "bonds": 0.5,
+      "cash": 0.5
     },
     "Sideways": {
       "stocks": 0.8,
-      "bonds": 0.2,
-      "cash": 0.0
+      "bonds": 0.1,
+      "cash": 0.1
     },
     "Unknown": {
-      "stocks": 0.5,
-      "bonds": 0.5,
-      "cash": 0.0
+      "stocks": 0.6,
+      "bonds": 0.3,
+      "cash": 0.1
     }
   },
   "state_to_label_mapping": {
@@ -46,12 +47,5 @@
     "1": "Sideways",
     "2": "Sideways"
   },
-  "chart_files": [
-    "portfolio_value_comparison.png",
-    "cumulative_returns.png",
-    "drawdown_analysis.png",
-    "sharpe_ratio_comparison.png",
-    "annual_returns_by_strategy.png",
-    "regime_timeline_portfolio.png"
-  ]
+  "chart_files": []
 }
