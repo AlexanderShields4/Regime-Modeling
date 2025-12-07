@@ -1,16 +1,9 @@
 {
-  " Bull": {
-    "Average Return": 0.0038616312532720166,
-    "Volatility": 0.01071617899736918,
-    "Sharpe Ratio": 0.35294914118507004,
-    "Max Drawdown": -0.09859699358784348,
-    "Periods": 1171
-  },
-  " Bear": {
-    "Average Return": 0.0037766942957398845,
-    "Volatility": 0.02185654595895109,
-    "Sharpe Ratio": 0.16916347273346766,
-    "Max Drawdown": -0.2299812655200236,
-    "Periods": 324
+  "Sideways": {
+    "Average Return": 0.00119108405962978,
+    "Volatility": 0.007064502560888067,
+    "Sharpe Ratio": 2.499875375823598,
+    "Max Drawdown": -0.06581776152497687,
+    "Periods": 614
   }
 }

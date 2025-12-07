@@ -15,9 +15,11 @@ class PortfolioVisualizer:
         # Set default style
         plt.style.use('seaborn-v0_8-darkgrid')
         self.colors = {
-            'Buy & Hold 60/40': '#1f77b4',  # Blue
-            'Bond Only 100%': '#2ca02c',    # Green
+            'Buy & Hold 60/40': '#1f77b4',              # Blue
+            'Bond Only 100%': '#2ca02c',                # Green
+            'Buy Stock and Hold 100%': '#8c564b',       # Brown
             'Regime-Based (regime_change)': '#d62728',  # Red
+            'Regime-Based (weekly)': '#17becf',         # Cyan
             'Regime-Based (monthly)': '#ff7f0e',        # Orange
             'Regime-Based (quarterly)': '#9467bd'       # Purple
         }
@@ -30,7 +32,7 @@ class PortfolioVisualizer:
         return filepath
 
     def plot_portfolio_values(self, strategies_dict, save_path='portfolio_value_comparison.png'):
-        # Line chart showing portfolio values over time for all strategies
+        # Line chart showing portfolio values over time for all strategies (semi-log y-axis)
         fig, ax = plt.subplots(figsize=(12, 6))
 
         for strategy_name, portfolio_values in strategies_dict.items():
@@ -42,9 +44,10 @@ class PortfolioVisualizer:
 
         ax.set_xlabel('Date', fontsize=12)
         ax.set_ylabel('Portfolio Value ($)', fontsize=12)
-        ax.set_title('Portfolio Value Comparison Over Time', fontsize=14, fontweight='bold')
-        ax.legend(loc='upper left', fontsize=10)
-        ax.grid(True, alpha=0.3)
+        ax.set_title('Portfolio Value Comparison Over Time (Log Scale)', fontsize=14, fontweight='bold')
+        ax.set_yscale('log')
+        ax.legend(loc='upper left', fontsize=10) #ax to log st the y axis is semi scaled
+        ax.grid(True, alpha=0.3, which='both')
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
         plt.xticks(rotation=45)
 
@@ -170,9 +173,9 @@ class PortfolioVisualizer:
 
         return self.save_figure(fig, save_path)
 
-    def plot_regime_timeline_portfolio(self, regime_predictions, portfolio_values,
+    def plot_regime_timeline_portfolio(self, regime_predictions, stock_market_data,
                                       dates, save_path='regime_timeline_portfolio.png'):
-        # Dual-axis chart: regime background + portfolio value overlay
+        # Dual-axis chart: regime background + stock market overlay
         fig, ax1 = plt.subplots(figsize=(14, 6))
 
         # Support 3 regimes: Bull, Bear, Sideways
@@ -181,7 +184,7 @@ class PortfolioVisualizer:
             1: 'lightcoral',      # Bear
             2: 'lightgray'        # Sideways
         }
-        
+
         regime_names = {
             0: 'Bull',
             1: 'Bear',
@@ -190,7 +193,7 @@ class PortfolioVisualizer:
 
         # Track which regimes we've added to legend
         added_to_legend = set()
-        
+
         current_regime = regime_predictions[0]
         start_idx = 0
 
@@ -198,25 +201,25 @@ class PortfolioVisualizer:
             if regime_predictions[i] != current_regime or i == len(regime_predictions) - 1:
                 # Plot shaded region for this regime
                 end_idx = i if i < len(regime_predictions) - 1 else i
-                
+
                 # Get color and name, with fallback for unknown regimes
                 color = regime_colors.get(current_regime, 'lightgray')
                 name = regime_names.get(current_regime, f'Regime {current_regime}')
-                
+
                 # Only add label if this regime hasn't been added to legend yet
                 label = name if current_regime not in added_to_legend else None
                 if current_regime not in added_to_legend:
                     added_to_legend.add(current_regime)
-                
+
                 ax1.axvspan(dates[start_idx], dates[end_idx], alpha=0.3, color=color, label=label)
 
                 current_regime = regime_predictions[i]
                 start_idx = i
 
-        # Plot portfolio value on primary axis
-        ax1.plot(dates, portfolio_values.values, color='darkblue', linewidth=2.5, label='Portfolio Value')
+        # Plot stock market on primary axis
+        ax1.plot(dates, stock_market_data.values, color='darkblue', linewidth=2.5, label='Stock Market')
         ax1.set_xlabel('Date', fontsize=12)
-        ax1.set_ylabel('Portfolio Value ($)', fontsize=12, color='darkblue')
+        ax1.set_ylabel('Stock Market Price ($)', fontsize=12, color='darkblue')
         ax1.tick_params(axis='y', labelcolor='darkblue')
         ax1.grid(True, alpha=0.3)
 
@@ -225,7 +228,7 @@ class PortfolioVisualizer:
             if regime_predictions[i] != regime_predictions[i-1]:
                 ax1.axvline(x=dates[i], color='black', linestyle='--', linewidth=0.5, alpha=0.5)
 
-        ax1.set_title('Regime Timeline with Portfolio Value', fontsize=14, fontweight='bold')
+        ax1.set_title('Regime Timeline with Stock Market Performance', fontsize=14, fontweight='bold')
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
         plt.xticks(rotation=45)
 
@@ -236,7 +239,7 @@ class PortfolioVisualizer:
 
         return self.save_figure(fig, save_path)
 
-    def save_all_visualizations(self, backtest_results, regime_predictions=None, dates=None):
+    def save_all_visualizations(self, backtest_results, regime_predictions=None, dates=None, stock_data=None):
         # Generate all PNG charts from backtest results
         strategy_results = backtest_results['strategy_results']
         metrics = backtest_results['metrics']
@@ -264,17 +267,13 @@ class PortfolioVisualizer:
         visualization_paths.append(path)
 
         # Chart 6: Regime timeline (if regime data provided)
-        if regime_predictions is not None and dates is not None:
-            # Use best regime-based strategy for portfolio value
-            best_freq = backtest_results['best_rebalance_freq']
-            if best_freq:
-                best_strategy = f'Regime-Based ({best_freq})'
-                if best_strategy in strategy_results:
-                    path = self.plot_regime_timeline_portfolio(
-                        regime_predictions,
-                        strategy_results[best_strategy],
-                        dates
-                    )
-                    visualization_paths.append(path)
+        if regime_predictions is not None and dates is not None and stock_data is not None:
+            # Plot stock market performance against regime timeline
+            path = self.plot_regime_timeline_portfolio(
+                regime_predictions,
+                stock_data,
+                dates
+            )
+            visualization_paths.append(path)
 
         return visualization_paths

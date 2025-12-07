@@ -16,8 +16,9 @@ Total configurations: ~900 (customizable below)
 from model import grid_search_parameters
 from features import cache_exists
 import multiprocessing as mp
-from datetime import datetime
+from datetime import datetime, timedelta
 import sys
+from tqdm import tqdm
 
 if __name__ == "__main__":
 
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     # Display system info
     n_cores = mp.cpu_count()
     print(f"Available CPU cores: {n_cores}")
-    print(f"Using {n_cores - 1} cores (leaving 1 free)")
+    print(f"Using {n_cores // 2} cores (half of available cores)")
 
     print("\n" + "-"*70)
     print("PARAMETER RANGES")
@@ -86,11 +87,14 @@ if __name__ == "__main__":
 
     # Estimate time
     avg_time_per_config = 15  # seconds (conservative estimate)
-    total_seconds = (total_configs * avg_time_per_config) / (n_cores - 1)
+    total_seconds = (total_configs * avg_time_per_config) / (n_cores // 2)  # Updated for half cores
     hours = total_seconds / 3600
 
+    expected_completion_low = datetime.now() + timedelta(seconds=total_seconds)
+    expected_completion_high = datetime.now() + timedelta(seconds=total_seconds * 2)
+
     print(f"\nEstimated time: {hours:.1f} - {hours*2:.1f} hours")
-    print(f"Expected completion: ~{(datetime.now().timestamp() + total_seconds)}")
+    print(f"Expected completion: {expected_completion_low.strftime('%Y-%m-%d %H:%M:%S')} - {expected_completion_high.strftime('%H:%M:%S')}")
 
     print("\n" + "="*70)
     print("STARTING COMPREHENSIVE SEARCH...")
@@ -110,7 +114,8 @@ if __name__ == "__main__":
         feature_combinations='auto',     # 6 smart feature combinations
         train_ratio=0.8,
         n_processes=None,                # Use all available cores minus 1
-        top_n=20                         # Show top 20 results
+        top_n=20,                        # Show top 20 results
+        show_progress=True               # Use tqdm progress bar
     )
 
     # Calculate elapsed time
@@ -137,34 +142,6 @@ if __name__ == "__main__":
     print("   → Ready-to-use Python code for best configuration")
     print("   → Just copy and run!")
 
-    print("\n" + "="*70)
-    print("NEXT STEPS")
-    print("="*70)
-    print("""
-1. Review the results:
-   - Open grid_search_results_*.csv in Excel/spreadsheet
-   - Look for configs with:
-     * Low Score (< 100)
-     * Low Degradation% (< 10%)
-     * Good Avg_Duration (5-50 periods)
-     * Decision = "✅ READY FOR PORTFOLIO"
-
-2. Validate best configuration:
-   - Open best_config.txt
-   - Copy the code and run it with backtest=True
-   - Verify it performs as expected
-
-3. Train final model:
-   - Run best config with backtest=False (trains on ALL data)
-   - Save model and scaler for portfolio management
-   - See portfolio_manager.py for deployment
-
-4. Deploy for live trading:
-   - Use saved model with PortfolioManager class
-   - Start with paper trading
-   - Monitor performance
-   - Go live when confident
-    """)
 
     print("="*70)
     print("Grid search complete! Check the files above.")
