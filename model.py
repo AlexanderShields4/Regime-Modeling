@@ -91,29 +91,39 @@ def _analyze_regime_characteristics(states, data, n_states):
             'count': len(subset)
         })
 
-    
-    
-    # static thresholds
-    bull_thr = 0.005
-    bear_thr = -0.005
 
-    # Second pass: classify regimes using thresholds
+
+    # Use relative ranking instead of absolute thresholds
+    # Sort by mean returns to classify Bull (highest) vs Bear (lowest) vs Sideways (middle)
+    valid_regimes = [(i, stats) for i, stats in enumerate(regime_stats) if stats['count'] > 0]
+
+    if len(valid_regimes) == 0:
+        return ["Unknown"] * n_states
+
+    # Sort by mean return (descending) - highest return = Bull, lowest = Bear
+    sorted_regimes = sorted(valid_regimes, key=lambda x: x[1]['mean_return'], reverse=True)
+
+    # Assign labels based on relative performance
+    regime_labels = {}
+    if len(sorted_regimes) == 3:
+        # Highest return = Bull, Lowest = Bear, Middle = Sideways
+        regime_labels[sorted_regimes[0][0]] = "Bull"
+        regime_labels[sorted_regimes[1][0]] = "Sideways"
+        regime_labels[sorted_regimes[2][0]] = "Bear"
+    elif len(sorted_regimes) == 2:
+        # Highest = Bull, Lowest = Bear
+        regime_labels[sorted_regimes[0][0]] = "Bull"
+        regime_labels[sorted_regimes[1][0]] = "Bear"
+    else:
+        # Only 1 regime
+        regime_labels[sorted_regimes[0][0]] = "Sideways"
+
+    # Build final list in original order
     for regime in range(n_states):
-        stats = regime_stats[regime]
-
-        if stats['count'] == 0:
-            regime_types.append("Unknown")
-            continue
-
-        mean_return = stats['mean_return']
-
-        # Classification with adaptive thresholds (primary based on mean return)
-        if mean_return >= bull_thr:
-            regime_types.append("Bull")
-        elif mean_return <= bear_thr:
-            regime_types.append("Bear")
+        if regime in regime_labels:
+            regime_types.append(regime_labels[regime])
         else:
-            regime_types.append("Sideways")
+            regime_types.append("Unknown")
 
     return regime_types
 
@@ -1305,7 +1315,7 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
     # Define allocations by LABEL (not by state index) - this allows thresholds to affect allocations
     allocation_by_label = {
         'Bull': {'stocks': 1.0, 'bonds': 0.0, 'cash': 0.0},  # Bull: 100% stocks
-        'Bear': {'stocks': 0.0, 'bonds': 0.5, 'cash': 0.5},  # Bear: 50% bonds, 50% cash (defensive but not flat)
+        'Bear': {'stocks': 0.3, 'bonds': 0.5, 'cash': 0.2},  # Bear: 50% bonds, 50% cash (defensive but not flat)
         'Sideways': {'stocks': 0.8, 'bonds': 0.1, 'cash': 0.1},  # Sideways: 70% stocks, 20% bonds, 10% cash
         'Unknown': {'stocks': 0.6, 'bonds': 0.3, 'cash': 0.1},  # Unknown: conservative balanced (same as Sideways)
     }
@@ -1414,17 +1424,17 @@ def run_portfolio_backtest(hidden_states, data, output_dir='dashboard_outputs/ba
 
 
 def main(
-    n_stocks=10,
-    n_indices=3,
+    n_stocks=18,
+    n_indices=0,
     volatility_window=10,
-    rsi_period=21,
+    rsi_period=14,
     momentum_period=10,
     include_returns=True,
     include_volatility=True,
     include_rsi=False,
     include_momentum=False,
     include_market_breadth=False,
-    n_iter=3000,
+    n_iter=5000,
     covariance_type='full',
     random_state=42,
     backtest=True,

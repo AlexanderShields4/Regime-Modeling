@@ -33,7 +33,7 @@ if __name__ == "__main__":
     # Small parameter ranges for quick testing
     n_stocks_range = [7, 10]  # 2 values
     n_indices_range = [0, 3]  # 2 values
-    volatility_window_range = [10, 20]  # 2 values
+    volatility_window_range = [10, 20, 30]  # 3 values (matches overnight)
     rsi_period_range = [14]  # 1 value
     momentum_period_range = [10]  # 1 value
     n_iter_range = [3000]  # 1 value (faster convergence)

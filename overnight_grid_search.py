@@ -58,10 +58,10 @@ if __name__ == "__main__":
     n_stocks_range = [5, 7, 10, 12, 15, 18, 20]
     n_indices_range = [0, 2, 3, 5, 7]
     
-    # Feature engineering windows - wider range
-    volatility_window_range = [10, 15, 20, 25, 30, 40]
-    rsi_period_range = [10, 14, 18, 21, 28]
-    momentum_period_range = [5, 10, 15, 20, 25]
+    # Feature engineering windows - reduced for efficiency
+    volatility_window_range = [10, 20, 30]  # Reduced from 6 to 3 values
+    rsi_period_range = [14]  # Reduced to standard period only
+    momentum_period_range = [10]  # Reduced to standard period only
     
     # HMM training parameters
     n_iter_range = [3000, 5000, 7000]  # More iterations for better convergence

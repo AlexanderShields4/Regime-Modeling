@@ -1,5 +1,5 @@
 {
-  "best_rebalance_freq": "weekly",
-  "best_sharpe": 0.6889306842547596,
-  "best_strategy_name": "Regime-Based (weekly)"
+  "best_rebalance_freq": "regime_change",
+  "best_sharpe": 0.630795518233284,
+  "best_strategy_name": "Regime-Based (regime_change)"
 }
