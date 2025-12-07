@@ -1,8 +1,8 @@
 # Best HMM Configuration (from grid search)
-# Generated: 20251207_010312
+# Generated: 20251207_171502
 
 run_hmm_model(
-    n_stocks=10,
+    n_stocks=18,
     n_indices=3,
     volatility_window=10,
     rsi_period=14,
@@ -12,7 +12,7 @@ run_hmm_model(
     include_rsi=False,
     include_momentum=False,
     include_market_breadth=False,
-    n_iter=3000,
+    n_iter=5000,
     covariance_type='full',
     random_state=42,
     backtest=True

@@ -1,9 +1,23 @@
 {
   "Sideways": {
-    "Average Return": 0.00119108405962978,
-    "Volatility": 0.007064502560888067,
-    "Sharpe Ratio": 2.499875375823598,
-    "Max Drawdown": -0.06581776152497687,
-    "Periods": 614
+    "Average Return": 0.00014513759380273817,
+    "Volatility": 0.013513613140301958,
+    "Sharpe Ratio": 0.07817972764548084,
+    "Max Drawdown": -0.3423976628847565,
+    "Periods": 864
+  },
+  "Bull": {
+    "Average Return": 0.0009971227102066407,
+    "Volatility": 0.007423804880317257,
+    "Sharpe Ratio": 1.964132309817782,
+    "Max Drawdown": -0.11059681528686743,
+    "Periods": 1567
+  },
+  "Bear": {
+    "Average Return": -0.0007300773488763094,
+    "Volatility": 0.03335416333621415,
+    "Sharpe Ratio": -0.38487296977362395,
+    "Max Drawdown": -0.37277691325633133,
+    "Periods": 167
   }
 }
