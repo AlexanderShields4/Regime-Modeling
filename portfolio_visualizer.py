@@ -135,7 +135,7 @@ class PortfolioVisualizer:
 
     def plot_annual_returns(self, strategies_dict, save_path='annual_returns_by_strategy.png'):
         # Grouped bar chart showing annual returns for each strategy
-        fig, ax = plt.subplots(figsize=(14, 6))
+        fig, ax = plt.subplots(figsize=(20, 6))
 
         # Calculate annual returns for each strategy
         annual_returns_data = {}
@@ -154,7 +154,7 @@ class PortfolioVisualizer:
         # Plot grouped bars
         years = annual_df.index.values
         x = np.arange(len(years))
-        width = 0.15  # Width of bars
+        width = 0.07  # Width of bars
 
         for i, strategy_name in enumerate(annual_df.columns):
             offset = (i - len(annual_df.columns) / 2) * width
