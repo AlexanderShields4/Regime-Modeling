@@ -1,14 +1,13 @@
 """
-Re-run the best configuration to regenerate regime allocations with fixed labels.
-This is much faster than re-running the full grid search.
+Re-run best configuration to regenerate regime allocations.
+Faster than full grid search.
 """
 
 from model import run_hmm_model
 
 print("Running best configuration from grid search...")
-print("This will regenerate regime_allocations.csv with correct Bull/Bear/Sideways labels\n")
+print("Regenerating regime_allocations.csv with correct labels\n")
 
-# Best configuration from grid search
 results = run_hmm_model(
     n_stocks=18,
     n_indices=3,

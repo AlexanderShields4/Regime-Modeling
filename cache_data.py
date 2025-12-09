@@ -1,10 +1,5 @@
 """
-Cache Data Script
-
-Run this once to download and cache stock data from APIs.
-This cached data will be used by all grid searches and model runs,
-avoiding repeated API calls and rate limiting.
-
+Cache stock data from APIs for offline use in grid searches.
 """
 
 import argparse
@@ -24,7 +19,6 @@ def main():
     print("DATA CACHING UTILITY")
     print("="*70)
 
-    # Clear cache if requested
     if args.clear:
         print("\nClearing cache...")
         clear_cache()
@@ -33,7 +27,6 @@ def main():
         print("="*70 + "\n")
         return
 
-    # Check if cache exists
     if not args.refresh and cache_exists():
         print("\n⚠️  Cache already exists!")
         print(f"    Location: {CACHE_DIR}/")
@@ -43,7 +36,6 @@ def main():
             return
         args.refresh = True
 
-    # Download and cache data
     print("\nDownloading data from APIs...")
     print("This may take a few minutes...\n")
 
@@ -51,7 +43,7 @@ def main():
 
     try:
         merged_data = get_merged_data(
-            join_type='outer',  # Use outer join to get full historical range back to 2000
+            join_type='outer',
             use_cache=False if args.refresh else True,
             force_refresh=args.refresh
         )

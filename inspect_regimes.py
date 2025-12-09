@@ -1,6 +1,5 @@
 """
-Inspect and analyze what the HMM model has learned about market regimes.
-Generates a detailed report showing regime characteristics, patterns, and examples.
+Analyze learned market regimes and generate detailed report.
 """
 
 import pandas as pd
@@ -13,14 +12,12 @@ def analyze_regimes():
     print("="*80)
     print(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
-    # Load data
     print("Loading data...")
     df = pd.read_csv('merged_data_with_features.csv', index_col=0, parse_dates=True)
     regime_df = pd.read_csv('dashboard_outputs/backtest_results/data/regime_allocations.csv')
     regime_df['Date'] = pd.to_datetime(regime_df['Date'])
     regime_df_indexed = regime_df.set_index('Date')
 
-    # Extract feature columns
     valid_prefixes = ('stock_', 'index_', 'resource_')
     exclude_patterns = ['_ma_', '_vol', 'momentum', '_mom', 'rsi', '_rsi', '_ema', '_sma', '_ewma']
 
@@ -31,14 +28,12 @@ def analyze_regimes():
     vol_cols = [col for col in df.columns if '_vol' in col.lower()]
     momentum_cols = [col for col in df.columns if 'momentum' in col.lower()]
 
-    # Align dates
     common_dates = df.index.intersection(regime_df_indexed.index)
     df_aligned = df.loc[common_dates]
     regime_aligned = regime_df_indexed.loc[common_dates]
 
     print(f"Analyzing {len(common_dates)} trading days from {common_dates[0].date()} to {common_dates[-1].date()}\n")
 
-    # Overall statistics
     print("="*80)
     print("REGIME DISTRIBUTION")
     print("="*80)
@@ -47,7 +42,6 @@ def analyze_regimes():
         pct = count / len(regime_aligned) * 100
         print(f"{regime_name:10s}: {count:4d} days ({pct:5.1f}%)")
 
-    # Detailed regime analysis
     print("\n" + "="*80)
     print("REGIME CHARACTERISTICS")
     print("="*80)
@@ -62,30 +56,24 @@ def analyze_regimes():
         if len(regime_data) == 0:
             continue
 
-        # Calculate returns
         daily_returns = regime_data[return_cols].mean(axis=1)
         mean_return = daily_returns.mean()
         std_return = daily_returns.std()
         median_return = daily_returns.median()
         sharpe = mean_return / std_return if std_return > 0 else 0
 
-        # Volatility
         if vol_cols:
             mean_vol = regime_data[vol_cols].mean().mean()
         else:
             mean_vol = None
 
-        # Momentum
         if momentum_cols:
             mean_momentum = regime_data[momentum_cols].mean().mean()
         else:
             mean_momentum = None
 
-        # Return distribution
         positive_days = (daily_returns > 0).sum()
         negative_days = (daily_returns < 0).sum()
-
-        # Store stats
         regime_stats[regime_name] = {
             'regime_num': regime_num,
             'days': len(regime_data),
@@ -97,7 +85,6 @@ def analyze_regimes():
             'negative_days': negative_days
         }
 
-        # Print detailed stats
         print(f"\n{regime_name.upper()} MARKET (Regime {regime_num})")
         print("-" * 80)
         print(f"Occurrences:     {len(regime_data)} days ({len(regime_data)/len(df_aligned)*100:.1f}% of time)")
@@ -120,7 +107,6 @@ def analyze_regimes():
             print(f"\nMomentum:")
             print(f"  Avg momentum:   {mean_momentum:.6f}")
 
-    # Regime transitions
     print("\n" + "="*80)
     print("REGIME TRANSITIONS")
     print("="*80)
@@ -132,8 +118,6 @@ def analyze_regimes():
 
     print(f"Total regime changes: {n_transitions}")
     print(f"Average regime duration: {avg_duration:.1f} days")
-
-    # Transition matrix
     transition_counts = {}
     for i in range(len(regime_series) - 1):
         from_regime = int(regime_series[i])
@@ -152,7 +136,6 @@ def analyze_regimes():
                 to_name = regime_names_by_num[to_num]
                 print(f"  {from_name:10s} → {to_name:10s}: {count:3d} times")
 
-    # Recent periods analysis
     print("\n" + "="*80)
     print("EXAMPLE PERIODS FOR EACH REGIME")
     print("="*80)
@@ -166,8 +149,6 @@ def analyze_regimes():
 
         print(f"\n{regime_name.upper()} REGIME - Sample Periods:")
         print("-" * 80)
-
-        # Find continuous periods
         periods = []
         current_period_start = None
 
@@ -175,15 +156,11 @@ def analyze_regimes():
             if current_period_start is None:
                 current_period_start = date
             elif i > 0 and (date - regime_dates[i-1]).days > 1:
-                # Period ended
                 periods.append((current_period_start, regime_dates[i-1]))
                 current_period_start = date
 
-        # Add last period
         if current_period_start is not None:
             periods.append((current_period_start, regime_dates[-1]))
-
-        # Show longest periods
         periods_sorted = sorted(periods, key=lambda x: (x[1] - x[0]).days, reverse=True)
 
         print(f"Longest {regime_name} periods:")
@@ -193,7 +170,6 @@ def analyze_regimes():
             period_return = period_data[return_cols].mean(axis=1).sum()
             print(f"  {i+1}. {start.date()} to {end.date()} ({duration:3d} days, {period_return*100:+.1f}% cumulative)")
 
-        # Show recent periods
         print(f"\nMost recent {regime_name} periods:")
         for i, (start, end) in enumerate(periods_sorted[-5:][::-1]):
             duration = (end - start).days + 1
@@ -201,7 +177,6 @@ def analyze_regimes():
             period_return = period_data[return_cols].mean(axis=1).sum()
             print(f"  {start.date()} to {end.date()} ({duration:3d} days, {period_return*100:+.1f}% cumulative)")
 
-    # Feature importance
     print("\n" + "="*80)
     print("FEATURE ANALYSIS")
     print("="*80)
@@ -242,9 +217,8 @@ def analyze_regimes():
     print("\nSUMMARY TABLE:")
     print(summary_df.to_string())
 
-    # Save to CSV
     summary_df.to_csv('regime_summary.csv')
-    print("\n✓ Summary saved to regime_summary.csv")
+    print("\nSummary saved to regime_summary.csv")
 
 if __name__ == "__main__":
     analyze_regimes()

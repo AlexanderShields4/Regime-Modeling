@@ -1,5 +1,4 @@
 import numpy as np
-import plotly.graph_objects as go
 import pandas as pd
 from scipy.stats import norm
 from features import get_enhanced_features_for_model
@@ -23,17 +22,8 @@ def _split_time_series_data(data, train_ratio):
 
 
 def _extract_return_columns(data):
-    """
-    Extract return columns from feature data.
-    Returns raw price/return columns (stock_, index_, resource_), excluding engineered features.
-
-    Returns:
-        List of column names that represent returns
-    """
-    # Include all asset type prefixes (not just stock_)
+    """Extract return columns, excluding engineered features."""
     valid_prefixes = ('stock_', 'index_', 'resource_')
-
-    # Exclude engineered feature suffixes
     exclude_patterns = ['_ma_', '_vol', 'momentum', '_mom', 'rsi', '_rsi',
                        '_ema', '_sma', '_ewma']
 
@@ -48,28 +38,21 @@ def _extract_return_columns(data):
 
 
 def _analyze_regime_characteristics(states, data, n_states):
-    """Analyze economic characteristics of each regime with 5-level classification."""
-    
+    """Analyze regime characteristics and classify as Bull/Bear/Sideways."""
+
     return_cols = _extract_return_columns(data)
 
     regime_types = []
     if not return_cols:
-        # No return columns found - cannot classify regimes
         import warnings
         warnings.warn(
-            "⚠ No return columns found for regime classification. "
-            "Possible causes:\n"
-            "  • include_returns=False in configuration\n"
-            "  • n_stocks=0, n_indices=0, and no resource data\n"
-            "  • All return columns filtered by feature engineering\n"
-            f"Available columns: {list(data.columns)[:10]}...\n"
-            "All regimes will be labeled 'Unknown' with conservative allocation (60/30/10).",
+            "No return columns found for regime classification. "
+            "Check include_returns=True and n_stocks>0 in config. "
+            "Using conservative allocation (60/30/10) for all regimes.",
             UserWarning,
             stacklevel=2
         )
         return ["Unknown"] * n_states
-
-    # First pass: collect all regime statistics
     regime_stats = []
     for regime in range(n_states):
         mask = states == regime
@@ -91,27 +74,12 @@ def _analyze_regime_characteristics(states, data, n_states):
             'count': len(subset)
         })
 
-
-
-    # Use financial market standard: classify by return/volatility characteristics
-    # Bull: High returns + Low volatility (stable uptrend)
-    # Bear: Low/negative returns + High volatility (unstable downtrend)
-    # Sideways: Medium returns + Medium volatility (choppy/ranging)
-
     valid_regimes = [(i, stats) for i, stats in enumerate(regime_stats) if stats['count'] > 0]
 
     if len(valid_regimes) == 0:
         return ["Unknown"] * n_states
 
-    # Calculate regime quality score: Sharpe ratio (return/risk)
-    # This naturally combines returns and volatility
-    # High Sharpe = Bull (good return per unit of risk)
-    # Low Sharpe = Bear (poor return per unit of risk)
-    # Medium Sharpe = Sideways
-
     sorted_regimes = sorted(valid_regimes, key=lambda x: x[1]['sharpe'], reverse=True)
-
-    # Assign labels based on risk-adjusted performance
     regime_labels = {}
     if len(sorted_regimes) == 3:
         # Best Sharpe (high return/low vol) = Bull
@@ -137,41 +105,23 @@ def _analyze_regime_characteristics(states, data, n_states):
 
     return regime_types
 
-def _generate_all_outputs(model, test_data, test_states, scaler, regime_types, 
+def _generate_all_outputs(model, test_data, test_states, scaler, regime_types,
                           output_dir='dashboard_outputs'):
-    """
-    Generate dashboard outputs, risk metrics, and portfolio backtest in one unified place.
-    
-    Consolidates: dashboard generation, risk metrics calculation, and portfolio backtest.
-    
-    Args:
-        model: Trained HMM model
-        test_data: Test data
-        test_states: Predicted states
-        scaler: Fitted scaler
-        regime_types: Regime labels (Bull/Bear/Sideways)
-        output_dir: Output directory
-    
-    Returns:
-        Backtest results dictionary (or None if backtest fails)
-    """
-    # Generate dashboard - pass empty dict for backtest_results if not available
+    """Generate dashboard, risk metrics, and portfolio backtest."""
     dashboard_info = generate_dashboard_outputs(
         model, test_data, test_states, {},
         regime_types=regime_types, 
         output_dir=output_dir
     )
     print(f"Dashboard files saved to: {dashboard_info['output_dir']}/")
-    
-    # Calculate and save risk metrics
+
     risk_metrics = calculate_risk_metrics(test_data, test_states, regime_types=regime_types)
     if risk_metrics:
         import json
         with open(f"{dashboard_info['output_dir']}/risk_metrics.json", 'w') as f:
             json.dump(risk_metrics, f, indent=2)
         print(f"Risk metrics saved")
-    
-    # Run portfolio backtest
+
     print("\nRunning portfolio backtest on test data...")
     try:
         backtest_results = run_portfolio_backtest(test_states, test_data)
@@ -205,36 +155,14 @@ def run_hmm_model(
     """
     Run HMM model with optional backtesting.
 
-    Args:
-        n_stocks: Number of stocks to include
-        n_indices: Number of indices to include
-        volatility_window: Window for volatility calculation
-        rsi_period: Period for RSI calculation
-        momentum_period: Period for momentum calculation
-        include_returns: Include log returns features
-        include_volatility: Include rolling volatility features
-        include_rsi: Include RSI technical indicators
-        include_momentum: Include momentum indicators
-        include_market_breadth: Include market breadth indicators
-        n_iter: Number of iterations for HMM training (recommended: 3000-7000)
-        covariance_type: Type of covariance parameters ('full', 'tied', 'diag', 'spherical')
-        random_state: Random state for reproducibility (ensures consistent models)
-        backtest: If True, perform train/test split backtesting
-        train_ratio: Ratio of data for training (default 0.8)
-        generate_outputs: If True, generate dashboard visualizations
-        
-    Note: HMM always uses n_components=3 (Bull, Bear, Sideways markets)
-
     Returns:
-        If backtest=False: Tuple of (model, hidden_states, log_probability, features_df, scaler)
-        If backtest=True: Dictionary with backtest_results and model metrics
+        Dictionary with backtest results and model metrics
     """
     mode_str = "BACKTEST" if backtest else "TRAIN"
     print("\n" + "="*60)
     print(f"RUNNING HMM MODEL - {mode_str} MODE")
     print("="*60)
 
-    # Get enhanced features with customizable feature types
     print("\nStep 1: Loading and engineering features...")
     data = get_enhanced_features_for_model(
         join_type='inner',
@@ -254,48 +182,35 @@ def run_hmm_model(
 
     print(f"Feature matrix shape: {data.shape}")
 
-    # Standard single split backtesting
-
     train_data, test_data, split_idx = _split_time_series_data(data, train_ratio)
     print(f"Train: {len(train_data)} samples | Test: {len(test_data)} samples")
     print(f"Split date: {data.index[split_idx]}")
     training_data = train_data
 
-    # Scale the features
     print("\nStep 2: Scaling features...")
     scaler = StandardScaler()
     obs_scaled = scaler.fit_transform(training_data)
     print(f"Scaled data shape: {obs_scaled.shape}")
 
-    # Define market states
     states = ["Bull Market", "Bear Market", "Sideways Market"]
     n_states = len(states)
 
     print(f"\nStep 3: Training HMM with {n_states} states...")
 
-    # Train HMM model
     model = GaussianHMM(n_components=n_states, covariance_type=covariance_type, n_iter=n_iter, random_state=random_state)
     model.fit(obs_scaled)
 
     print("Model trained!")
 
-    # Backtesting mode - evaluate on test set
     print("\nStep 4: Evaluating on test set...")
 
-    # Get training performance
     train_log_prob = model.score(obs_scaled)
 
-    # Evaluate on test set
     test_scaled = scaler.transform(test_data)
     test_log_prob = model.score(test_scaled)
 
-    # Use Viterbi algorithm for optimal state sequence (same as non-backtest mode)
     _, test_states = model.decode(test_scaled, algorithm='viterbi')
-
-    # Decode training states using Viterbi for consistency
     _, train_states = model.decode(obs_scaled, algorithm='viterbi')
-
-    # Calculate metrics
     n_features = test_data.shape[1]
     n_samples = len(test_data)
     n_params_means = n_states * n_features
@@ -306,19 +221,14 @@ def run_hmm_model(
     test_aic = -2 * test_log_prob + 2 * n_params
     test_bic = -2 * test_log_prob + n_params * np.log(n_samples)
 
-    # Calculate degradation 
     train_log_prob_avg = train_log_prob / len(obs_scaled)
     test_log_prob_avg = test_log_prob / len(test_scaled)
     degradation = ((test_log_prob_avg - train_log_prob_avg) / train_log_prob_avg) * 100
 
-    # Regime stability
     regime_changes = np.sum(np.diff(test_states) != 0)
     avg_regime_duration = len(test_states) / (regime_changes + 1)
 
-    # Analyze regime characteristics (use test_data, not train_data - states match test data length)
     regime_types = _analyze_regime_characteristics(test_states, test_data, n_states)
-
-    # Calculate regime diversity metrics
     unique_regimes = len(set(regime_types))
     n_unique_regimes = unique_regimes
     regime_diversity = unique_regimes / n_states  # Normalize by total possible states
@@ -331,7 +241,6 @@ def run_hmm_model(
     print(f"Avg Regime Duration: {avg_regime_duration:.1f} periods | Changes: {regime_changes}")
     print(f"Regimes: {' | '.join([f'{i}={regime_types[i]}' for i in range(n_states)])}")
 
-    # Decision
     if degradation < 10 and 5 <= avg_regime_duration <= 50:
         decision = "READY FOR PORTFOLIO"
     elif degradation < 30:
@@ -344,7 +253,6 @@ def run_hmm_model(
     print("BACKTEST COMPLETE")
     print("="*60 + "\n")
 
-    # Prepare results dictionary
     results = {
         'model': model,
         'scaler': scaler,
@@ -367,7 +275,6 @@ def run_hmm_model(
         'decision': decision
     }
 
-    # Only generate outputs if requested (skip during grid search for performance)
     if generate_outputs:
         print("\nGenerating dashboard outputs...")
         _generate_all_outputs(model, test_data, test_states, scaler, regime_types, 
@@ -377,30 +284,16 @@ def run_hmm_model(
 
 
 def calculate_model_metrics(model, data_scaled, n_features):
-    """
-    Calculate performance metrics for HMM model.
-
-    Args:
-        model: Trained GaussianHMM model
-        data_scaled: Scaled feature data
-        n_features: Number of features used
-
-    Returns:
-        Dictionary of metrics (AIC, BIC, log_likelihood)
-    """
+    """Calculate performance metrics for HMM model."""
     n_samples = len(data_scaled)
     n_states = model.n_components
 
-    # Calculate log likelihood
     log_likelihood = model.score(data_scaled)
-
-    # Calculate number of parameters
     n_params_means = n_states * n_features
     n_params_covars = n_states * n_features * (n_features + 1) // 2
     n_params_transitions = n_states * (n_states - 1)
     n_params = n_params_means + n_params_covars + n_params_transitions
 
-    # Calculate AIC and BIC
     aic = -2 * log_likelihood + 2 * n_params
     bic = -2 * log_likelihood + n_params * np.log(n_samples)
 
@@ -414,36 +307,19 @@ def calculate_model_metrics(model, data_scaled, n_features):
     }
 
 def save_best_model(model, scaler, params, metrics, filename_prefix='best_hmm_model'):
-    """
-    Save the best HMM model, scaler, and configuration to disk.
-
-    Args:
-        model: Trained GaussianHMM model
-        scaler: Fitted StandardScaler
-        params: Dictionary of model parameters
-        metrics: Dictionary of performance metrics
-        filename_prefix: Prefix for saved files
-
-    Returns:
-        Dictionary with paths to saved files
-    """
+    """Save HMM model, scaler, and configuration to disk."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Create models directory if it doesn't exist
     os.makedirs('models', exist_ok=True)
 
-    # Ensure all critical HMM parameters are in params dict
     model_params = {
-        'n_components': 3,  # Fixed to 3 states
+        'n_components': 3,
         'covariance_type': model.covariance_type,
         'n_iter': model.n_iter,
         'random_state': params.get('random_state', 42)
     }
-    
-    # Merge with existing params
+
     complete_params = {**params, **model_params}
-    
-    # Save model
     model_path = f'models/{filename_prefix}_{timestamp}.pkl'
     with open(model_path, 'wb') as f:
         pickle.dump({
@@ -454,7 +330,6 @@ def save_best_model(model, scaler, params, metrics, filename_prefix='best_hmm_mo
             'timestamp': timestamp
         }, f)
 
-    # Also save as 'latest' for easy access
     latest_path = f'models/{filename_prefix}_latest.pkl'
     with open(latest_path, 'wb') as f:
         pickle.dump({
@@ -472,65 +347,42 @@ def save_best_model(model, scaler, params, metrics, filename_prefix='best_hmm_mo
 
 def _calculate_composite_score(results):
     """
-    Calculate composite score balancing portfolio performance and statistical quality.
-    Lower score = better configuration.
-
-    Args:
-        results: Dictionary with HMM backtest results and portfolio metrics
-
-    Returns:
-        float: Composite score (lower is better)
+    Calculate composite score balancing portfolio and statistical quality.
+    Lower score = better.
     """
-    # ========================================
-    # PORTFOLIO PERFORMANCE METRICS
-    # ========================================
-
-    # 1. Returns penalty (invert CAGR - high CAGR = low penalty)
     cagr = results.get('portfolio_cagr', 0)
-    returns_penalty = max(0, (0.40 - cagr) * 250)  # Weight: 0-150
+    returns_penalty = max(0, (0.40 - cagr) * 250)
 
-    # 2. Sharpe ratio penalty (invert - high Sharpe = low penalty)
     sharpe = results.get('portfolio_sharpe', 0)
-    sharpe_penalty = max(0, (3.0 - sharpe) * 25)  # Weight: 0-100
+    sharpe_penalty = max(0, (3.0 - sharpe) * 25)
 
-    # 3. Max drawdown penalty (absolute value - high DD = high penalty)
     max_dd = abs(results.get('portfolio_max_dd', -0.5))
-    drawdown_penalty = max_dd * 150  # Weight: 7.5-90
+    drawdown_penalty = max_dd * 150
 
-    # 4. Sortino ratio penalty (invert - high Sortino = low penalty)
     sortino = results.get('portfolio_sortino', 0)
-    sortino_penalty = max(0, (4.0 - sortino) * 15)  # Weight: 0-75
+    sortino_penalty = max(0, (4.0 - sortino) * 15)
 
-    # 5. Calmar ratio penalty (invert - high Calmar = low penalty)
     calmar = results.get('portfolio_calmar', 0)
-    calmar_penalty = max(0, (3.0 - calmar) * 20)  # Weight: 0-100
+    calmar_penalty = max(0, (3.0 - calmar) * 20)
 
-    # Portfolio Performance Score (sum of penalties)
     portfolio_score = (
-        returns_penalty +      # 0-150
-        sharpe_penalty +       # 0-100
-        drawdown_penalty +     # 7.5-90
-        sortino_penalty +      # 0-75
-        calmar_penalty         # 0-100
+        returns_penalty +
+        sharpe_penalty +
+        drawdown_penalty +
+        sortino_penalty +
+        calmar_penalty
     )
-
-    # ========================================
-    # STATISTICAL QUALITY METRICS (40% weight)
-    # ========================================
 
     test_states = results['test_states']
     n_regime_changes = results['n_regime_changes']
     avg_duration = results['avg_regime_duration']
 
-    # Calculate regime diversity
     state_counts = np.bincount(test_states)
     state_probs = state_counts / len(test_states)
     regime_entropy = -np.sum(state_probs[state_probs > 0] * np.log(state_probs[state_probs > 0]))
     regime_diversity_score = regime_entropy / np.log(3)
 
     n_unique_regimes = len(np.unique(test_states))
-
-    # Model quality penalties
     regime_usage_penalty = (3 - n_unique_regimes) * 30 if n_unique_regimes < 3 else 0
 
     switching_penalty = 0
@@ -549,30 +401,22 @@ def _calculate_composite_score(results):
     bic_score = results['test_bic'] / 1000
     diversity_penalty = (1 - regime_diversity_score) * 50
 
-    # Statistical Quality Score
     statistical_score = (
-        degradation_penalty +      # 8-16
-        regime_usage_penalty +     # 0-60
-        switching_penalty +        # 0-100
-        duration_penalty +         # 0-135
-        bic_score +                # 5-15
-        diversity_penalty          # 0-50
+        degradation_penalty +
+        regime_usage_penalty +
+        switching_penalty +
+        duration_penalty +
+        bic_score +
+        diversity_penalty
     )
 
-    # ========================================
-    # COMPOSITE SCORE (60/40 split)
-    # ========================================
-
-    # Normalize both components to similar scales
-    portfolio_normalized = portfolio_score / 250  # Normalize to ~1.0 average
-    statistical_normalized = statistical_score / 150  # Normalize to ~1.0 average
+    portfolio_normalized = portfolio_score / 250
+    statistical_normalized = statistical_score / 150
 
     composite_score = (
-        portfolio_normalized * 600 +     # 60% weight on portfolio
-        statistical_normalized * 400     # 40% weight on statistics
+        portfolio_normalized * 600 +
+        statistical_normalized * 400
     )
-
-    # Store component scores for analysis
     results['portfolio_score_component'] = portfolio_score
     results['statistical_score_component'] = statistical_score
     results['regime_diversity'] = regime_diversity_score
@@ -582,20 +426,13 @@ def _calculate_composite_score(results):
 
 
 def _run_single_config(args):
-    """
-    Helper function to run a single configuration for parallel processing.
-    Returns results dict or None if error.
-    """
+    """Run single configuration for parallel processing."""
     config_id, params = args
 
     try:
-        # HARDCODED: Grid search ALWAYS uses backtest=True and requires stocks
-        # Validate that stocks are included (n_stocks must be > 0)
         if params['n_stocks'] <= 0:
             raise ValueError(f"n_stocks must be > 0 for grid search (got {params['n_stocks']})")
 
-        # Run backtest with these parameters
-        # HARDCODED: backtest=True is mandatory for grid search evaluation
         results = run_hmm_model(
             n_stocks=params['n_stocks'],
             n_indices=params['n_indices'],
@@ -607,31 +444,25 @@ def _run_single_config(args):
             include_rsi=params['include_rsi'],
             include_momentum=params['include_momentum'],
             include_market_breadth=params['include_market_breadth'],
-            backtest=True,  # HARDCODED: Always use backtest mode in grid search
+            backtest=True,
             train_ratio=params.get('train_ratio', 0.8),
             n_iter=params['n_iter'],
             covariance_type=params['covariance_type'],
             random_state=params['random_state'],
-            generate_outputs=False  # Skip dashboard generation during grid search
+            generate_outputs=False
         )
 
-        # Add config info to results
         results['config_id'] = config_id
         results['params'] = params
-        # NEW: Run portfolio backtest to get investment performance metrics
         try:
             test_states = results['test_states']
             test_data = results['test_data']
 
-            # Skip visualization generation for grid search (much faster)
             portfolio_results = run_portfolio_backtest(test_states, test_data, generate_visualizations=False)
 
-            # Extract portfolio metrics for best rebalance frequency
             best_freq = portfolio_results['best_rebalance_freq']
             best_strategy = f'Regime-Based ({best_freq})'
             portfolio_metrics = portfolio_results['metrics'][best_strategy]
-
-            # Add portfolio metrics to results
             results['portfolio_cagr'] = portfolio_metrics['CAGR']
             results['portfolio_sharpe'] = portfolio_metrics['Sharpe Ratio']
             results['portfolio_sortino'] = portfolio_metrics['Sortino Ratio']
@@ -642,7 +473,6 @@ def _run_single_config(args):
             results['best_rebalance_freq'] = best_freq
 
         except Exception as e:
-            # If portfolio backtest fails, use default poor values
             print(f"  Config {config_id}: Portfolio backtest failed ({str(e)}), using defaults")
             results['portfolio_cagr'] = 0.0
             results['portfolio_sharpe'] = 0.0
@@ -653,7 +483,6 @@ def _run_single_config(args):
             results['portfolio_win_rate'] = 0.5
             results['best_rebalance_freq'] = 'unknown'
 
-        # Calculate new composite score (balances portfolio + statistical quality)
         results['score'] = _calculate_composite_score(results)
 
         return results
@@ -679,21 +508,7 @@ def grid_search_parameters(
     show_progress=False
 ):
     """
-    Perform parallel grid search over HMM parameters to find optimal configuration.
-
-    Args:
-        n_stocks_range: List of n_stocks values to test
-        n_indices_range: List of n_indices values to test
-        volatility_window_range: List of volatility window values to test
-        rsi_period_range: List of RSI period values to test
-        momentum_period_range: List of momentum period values to test
-        n_iter_range: List of HMM iteration counts to test
-        covariance_type_range: List of covariance types to test ('full', 'tied', 'diag', 'spherical')
-        random_state: Random state for reproducibility
-        feature_combinations: 'auto' for smart combinations, or list of dicts
-        train_ratio: Train/test split ratio
-        n_processes: Number of parallel processes (None = auto-detect)
-        top_n: Number of top results to display
+    Parallel grid search over HMM parameters.
 
     Returns:
         DataFrame with all results sorted by score
@@ -703,29 +518,23 @@ def grid_search_parameters(
     print("GRID SEARCH - PARALLEL PARAMETER OPTIMIZATION")
     print("="*70)
 
-    # HARDCODED VALIDATION: Ensure stocks are always included in grid search
     if any(n <= 0 for n in n_stocks_range):
         raise ValueError(f"Grid search requires stocks: n_stocks_range must not contain values <= 0. Got: {n_stocks_range}")
 
     print("\n✓ Validated: Backtesting enabled and stocks required for all configurations")
 
-    # Define feature combinations to test
     if feature_combinations == 'auto':
-        # Smart subset - most promising combinations
         feature_combos = [
-            # Core combinations
             {'returns': True, 'volatility': True, 'rsi': False, 'momentum': False, 'market_breadth': False},
             {'returns': True, 'volatility': True, 'rsi': True, 'momentum': True, 'market_breadth': False},
             {'returns': True, 'volatility': True, 'rsi': False, 'momentum': True, 'market_breadth': False},
             {'returns': True, 'volatility': True, 'rsi': True, 'momentum': False, 'market_breadth': False},
-            # With market breadth
             {'returns': True, 'volatility': True, 'rsi': False, 'momentum': False, 'market_breadth': True},
             {'returns': True, 'volatility': True, 'rsi': True, 'momentum': True, 'market_breadth': True},
         ]
     else:
         feature_combos = feature_combinations
 
-    # Generate all parameter combinations
     param_grid = []
     config_id = 0
 
@@ -754,7 +563,7 @@ def grid_search_parameters(
             'include_momentum': features['momentum'],
             'include_market_breadth': features['market_breadth'],
             'train_ratio': train_ratio,
-            'n_components': 3  # Fixed to 3 states for consistency
+            'n_components': 3
         }
         param_grid.append((config_id, params))
         config_id += 1
@@ -771,9 +580,8 @@ def grid_search_parameters(
     print(f"  covariance_type: {covariance_type_range}")
     print(f"  Feature combinations: {len(feature_combos)}")
 
-    # Determine number of processes
     if n_processes is None:
-        n_processes = max(1, mp.cpu_count() // 2)  # Use half the cores
+        n_processes = max(1, mp.cpu_count() // 2)
 
     estimated_minutes_low = total_configs / n_processes * 0.5
     estimated_minutes_high = total_configs / n_processes * 2
@@ -784,27 +592,23 @@ def grid_search_parameters(
     print(f"Expected completion: {expected_completion.strftime('%Y-%m-%d %H:%M:%S')}")
     print("\nStarting grid search...\n")
 
-    # Run parallel grid search
     results_list = []
 
     if n_processes > 1:
-        # Parallel execution
         with mp.Pool(processes=n_processes) as pool:
-            # Use imap_unordered for progress tracking
             iterator = pool.imap_unordered(_run_single_config, param_grid)
-            
+
             if show_progress:
                 try:
                     from tqdm import tqdm
                     iterator = tqdm(iterator, total=total_configs, desc="Grid Search")
                 except ImportError:
                     pass
-            
+
             for result in iterator:
                 if result is not None:
                     results_list.append(result)
     else:
-        # Serial execution (for debugging)
         iterator = param_grid
         if show_progress:
             try:
@@ -812,7 +616,7 @@ def grid_search_parameters(
                 iterator = tqdm(iterator, desc="Grid Search")
             except ImportError:
                 pass
-        
+
         for config in iterator:
             result = _run_single_config(config)
             if result is not None:
@@ -820,7 +624,6 @@ def grid_search_parameters(
 
     print(f"\nCompleted! {len(results_list)}/{total_configs} configurations succeeded")
 
-    # Check if any configurations succeeded
     if len(results_list) == 0:
         print("\n" + "="*70)
         print("ERROR: All configurations failed!")
@@ -832,12 +635,9 @@ def grid_search_parameters(
         print("="*70 + "\n")
         return None
 
-    # Convert to DataFrame
     summary_data = []
     for r in results_list:
         p = r['params']
-
-        # Create feature string
         features = []
         if p['include_returns']: features.append('Ret')
         if p['include_volatility']: features.append('Vol')
@@ -846,7 +646,6 @@ def grid_search_parameters(
         if p['include_market_breadth']: features.append('MB')
         feature_str = '+'.join(features)
 
-        # Calculate decision based on portfolio metrics
         sharpe = r.get('portfolio_sharpe', 0)
         max_dd = r.get('portfolio_max_dd', -0.5)
         cagr = r.get('portfolio_cagr', 0)
@@ -864,7 +663,6 @@ def grid_search_parameters(
         summary_data.append({
             'Config_ID': r['config_id'],
             'Score': r['score'],
-            # Portfolio Performance Metrics (NEW)
             'CAGR%': r.get('portfolio_cagr', 0) * 100,
             'Sharpe': r.get('portfolio_sharpe', 0),
             'Sortino': r.get('portfolio_sortino', 0),
@@ -873,7 +671,6 @@ def grid_search_parameters(
             'Volatility%': r.get('portfolio_volatility', 0.3) * 100,
             'WinRate%': r.get('portfolio_win_rate', 0.5) * 100,
             'BestRebalance': r.get('best_rebalance_freq', 'unknown'),
-            # Statistical Quality Metrics
             'Regime_Diversity': r.get('regime_diversity', 0),
             'N_Regimes_Used': r.get('n_unique_regimes', 0),
             'Regime_Changes': r['n_regime_changes'],
@@ -881,7 +678,6 @@ def grid_search_parameters(
             'Degradation%': r['degradation'],
             'Test_LogL': r['test_log_prob'],
             'Test_BIC': r['test_bic'],
-            # Configuration Parameters
             'n_stocks': p['n_stocks'],
             'n_indices': p['n_indices'],
             'vol_window': p['volatility_window'],
@@ -891,9 +687,7 @@ def grid_search_parameters(
         })
 
     results_df = pd.DataFrame(summary_data)
-    results_df = results_df.sort_values('Score')  # Lower score is better
-
-    # Display top results
+    results_df = results_df.sort_values('Score')
     print("\n" + "="*70)
     print(f"TOP {top_n} CONFIGURATIONS (Lower Score = Better)")
     print("="*70)
@@ -905,7 +699,6 @@ def grid_search_parameters(
     results_df.to_csv(csv_filename, index=False)
     print(f"\n✓ Full results saved to: {csv_filename}")
 
-    # Display best configuration details
     best = results_df.iloc[0]
     print("\n" + "="*70)
     print("BEST CONFIGURATION DETAILS")
@@ -939,7 +732,6 @@ def grid_search_parameters(
     print(f"\nOVERALL DECISION: {best['Decision']}")
     print("="*70 + "\n")
 
-    # Save best config to file for easy reference
     best_config_file = 'best_config.txt'
     best_params = [r for r in results_list if r['config_id'] == best['Config_ID']][0]['params']
 
@@ -965,13 +757,11 @@ def grid_search_parameters(
 
     print(f"✓ Best configuration saved to: {best_config_file}")
 
-    # Save the best model (if available)
     best_result = [r for r in results_list if r['config_id'] == best['Config_ID']][0]
 
     if best_result.get('model') is not None and best_result.get('scaler') is not None:
         print("\nSaving best model...")
 
-        # Prepare metrics dictionary
         best_metrics = {
             'score': best_result['score'],
             'degradation': best_result['degradation'],
@@ -1002,7 +792,6 @@ def grid_search_parameters(
     else:
         print("    To train the best config, re-run with the saved parameters in best_config.txt\n")
 
-    # Portfolio Performance Summary
     print("\n" + "="*70)
     print("PORTFOLIO PERFORMANCE SUMMARY")
     print("="*70)
@@ -1051,44 +840,30 @@ def generate_dashboard_outputs(model, data, hidden_states, backtest_results, reg
     import plotly.express as px
     import shutil
 
-    # Create output directory, removing old files if they exist
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
-    # -------------------------
-    # Regime names & colors
-    # -------------------------
-    # ISSUE 6 FIX: Use actual regime types from analysis if provided
     if regime_types is not None:
         regime_names = regime_types
     else:
-        # Fallback to analyzing if not provided
         n_states = len(np.unique(hidden_states))
         regime_names = _analyze_regime_characteristics(hidden_states, data, n_states)
-
-    # color map keyed by regime name (rgba for vrect translucency)
     color_map = {
-        'Bull': 'rgba(0,200,0,0.25)',      # bright green
-        'Bear': 'rgba(220,0,0,0.25)',      # bright red
-        'Sideways': 'rgba(120,120,120,0.25)'       # grey
+        'Bull': 'rgba(0,200,0,0.25)',
+        'Bear': 'rgba(220,0,0,0.25)',
+        'Sideways': 'rgba(120,120,120,0.25)'
     }
 
-    # marker colors for legend (opaque)
     marker_map = {
         'Bull': 'green',
         'Bear': 'darkred',
         'Sideways': 'gray'
     }
 
-    # -------------------------
-    # Regime timeline (Plotly)
-    # -------------------------
     fig_regime = go.Figure()
 
-    # Aggregate contiguous regime spans
     if len(hidden_states) == 0:
-        # Nothing to plot
         fig_regime.add_annotation(text="No regime data", xref="paper", yref="paper", showarrow=False)
     else:
         regime_changes = np.where(np.diff(hidden_states) != 0)[0]
