@@ -6,83 +6,68 @@ warnings.filterwarnings('ignore')
 
 
 class PortfolioMetrics:
-    # Calculate comprehensive performance metrics for portfolio strategies
 
     def __init__(self, risk_free_rate=0.02):
-        self.risk_free_rate = risk_free_rate  # Annual risk-free rate
-        self.daily_rf_rate = (1 + risk_free_rate) ** (1/252) - 1  # Daily risk-free rate
+        self.risk_free_rate = risk_free_rate
+        self.daily_rf_rate = (1 + risk_free_rate) ** (1/252) - 1
 
     def calculate_returns(self, portfolio_values):
-        # Calculate daily returns from portfolio values
         returns = portfolio_values.pct_change().dropna()
         return returns
 
     def calculate_total_return(self, portfolio_values):
-        # Total return from start to end
         return (portfolio_values.iloc[-1] / portfolio_values.iloc[0]) - 1
 
     def calculate_cagr(self, portfolio_values):
-        # Compound Annual Growth Rate
         total_return = self.calculate_total_return(portfolio_values)
-        n_years = len(portfolio_values) / 252  # 252 trading days per year
+        n_years = len(portfolio_values) / 252
         if n_years == 0:
             return 0.0
         cagr = (1 + total_return) ** (1 / n_years) - 1
         return cagr
 
     def calculate_volatility(self, returns, annualize=True):
-        # Return volatility (standard deviation)
         vol = returns.std()
         if annualize:
-            vol = vol * np.sqrt(252)  # Annualize daily volatility
+            vol = vol * np.sqrt(252)
         return vol
 
     def calculate_sharpe_ratio(self, returns):
-        # Risk-adjusted return (Sharpe ratio)
-        # Drop NA and use daily geometric risk-free rate
         returns = returns.dropna()
         if len(returns) == 0:
             return float('nan')
 
-        # excess returns (daily)
         excess_returns = returns - self.daily_rf_rate
 
         vol = returns.std()
         if vol == 0 or np.isnan(vol):
-            # Undefined Sharpe (zero volatility) -> return NaN so caller can handle/display appropriately
             return float('nan')
 
-        # Annualized Sharpe: mean excess daily return / daily std * sqrt(252)
         sharpe = (excess_returns.mean() / vol) * np.sqrt(252)
         return float(sharpe)
 
     def calculate_sortino_ratio(self, returns):
-        # Downside risk-adjusted return (Sortino ratio)
         excess_returns = returns - self.daily_rf_rate
         downside_returns = returns[returns < 0]
         if len(downside_returns) == 0 or downside_returns.std() == 0:
             return 0.0
-        sortino = excess_returns.mean() / downside_returns.std() * np.sqrt(252)  # Annualized
+        sortino = excess_returns.mean() / downside_returns.std() * np.sqrt(252)
         return sortino
 
     def calculate_drawdowns(self, portfolio_values):
-        # Calculate drawdown series (running drawdown from peak)
         cumulative_max = portfolio_values.expanding().max()
         drawdowns = (portfolio_values - cumulative_max) / cumulative_max
         return drawdowns
 
     def calculate_max_drawdown(self, portfolio_values):
-        # Maximum peak-to-trough decline
         drawdowns = self.calculate_drawdowns(portfolio_values)
         return drawdowns.min()
 
     def calculate_average_drawdown(self, portfolio_values):
-        # Average of all drawdown periods
         drawdowns = self.calculate_drawdowns(portfolio_values)
         return drawdowns[drawdowns < 0].mean() if len(drawdowns[drawdowns < 0]) > 0 else 0.0
 
     def calculate_recovery_time(self, portfolio_values):
-        # Average days to recover from drawdown to new peak
         drawdowns = self.calculate_drawdowns(portfolio_values)
         recovery_times = []
 
@@ -91,11 +76,9 @@ class PortfolioMetrics:
 
         for i in range(len(drawdowns)):
             if drawdowns.iloc[i] < 0 and not in_drawdown:
-                # Entering drawdown
                 in_drawdown = True
                 drawdown_start = i
             elif drawdowns.iloc[i] == 0 and in_drawdown:
-                # Recovered to new peak
                 recovery_times.append(i - drawdown_start)
                 in_drawdown = False
                 drawdown_start = None
@@ -103,12 +86,10 @@ class PortfolioMetrics:
         return np.mean(recovery_times) if recovery_times else 0.0
 
     def calculate_win_rate(self, returns):
-        # Percentage of positive return periods
         positive_returns = returns[returns > 0]
         return len(positive_returns) / len(returns) if len(returns) > 0 else 0.0
 
     def calculate_calmar_ratio(self, portfolio_values):
-        # CAGR / Max Drawdown (return per unit of max drawdown)
         cagr = self.calculate_cagr(portfolio_values)
         max_dd = abs(self.calculate_max_drawdown(portfolio_values))
         if max_dd == 0:
@@ -116,7 +97,6 @@ class PortfolioMetrics:
         return cagr / max_dd
 
     def get_all_metrics(self, portfolio_values):
-        # Calculate all metrics and return as dictionary
         returns = self.calculate_returns(portfolio_values)
 
         metrics = {
@@ -136,22 +116,18 @@ class PortfolioMetrics:
 
 
 class PortfolioBacktester:
-    # Main backtesting engine for comparing portfolio strategies
 
     def __init__(self, stock_data, bond_data, regime_predictions=None,
                  transaction_cost=0.001, initial_capital=100000):
-        # Ensure data is aligned (same dates)
         self.stock_data = stock_data
         self.bond_data = bond_data
 
-        # Align dates using inner join
         self.dates = stock_data.index.intersection(bond_data.index)
         self.stock_prices = stock_data.loc[self.dates]
         self.bond_prices = bond_data.loc[self.dates]
 
         self.regime_predictions = regime_predictions
         if regime_predictions is not None and len(regime_predictions) > len(self.dates):
-            # Trim regime predictions to match data length
             self.regime_predictions = regime_predictions[:len(self.dates)]
 
         self.transaction_cost = transaction_cost
@@ -159,15 +135,13 @@ class PortfolioBacktester:
         self.metrics_calculator = PortfolioMetrics()
 
     def get_rebalance_dates(self, frequency):
-        # Generate rebalancing schedule based on frequency
         dates = self.dates
 
         if frequency == 'regime_change':
-            # Rebalance on each regime change
             if self.regime_predictions is None:
                 raise ValueError("regime_predictions required for regime_change frequency")
 
-            rebalance_indices = [0]  # Always start at beginning
+            rebalance_indices = [0]
             for i in range(1, len(self.regime_predictions)):
                 if self.regime_predictions[i] != self.regime_predictions[i-1]:
                     rebalance_indices.append(i)
@@ -175,7 +149,6 @@ class PortfolioBacktester:
             return [dates[i] for i in rebalance_indices]
 
         elif frequency == 'monthly':
-            # Rebalance first trading day of each month
             rebalance_dates = []
             current_month = None
             for date in dates:
@@ -185,11 +158,10 @@ class PortfolioBacktester:
             return rebalance_dates
 
         elif frequency == 'weekly':
-            # Rebalance first trading day of each week
             rebalance_dates = []
             current_week = None
             for date in dates:
-                week = date.isocalendar()[1]  # ISO week number
+                week = date.isocalendar()[1]
                 year_week = (date.year, week)
                 if current_week is None or year_week != current_week:
                     rebalance_dates.append(date)
@@ -197,7 +169,6 @@ class PortfolioBacktester:
             return rebalance_dates
 
         elif frequency == 'quarterly':
-            # Rebalance first trading day of each quarter
             rebalance_dates = []
             current_quarter = None
             for date in dates:
@@ -208,7 +179,6 @@ class PortfolioBacktester:
             return rebalance_dates
 
         elif frequency == 'yearly':
-            # Rebalance first trading day of each year
             rebalance_dates = []
             current_year = None
             for date in dates:
@@ -221,8 +191,6 @@ class PortfolioBacktester:
             raise ValueError(f"Unknown frequency: {frequency}")
 
     def apply_transaction_costs(self, old_weights, new_weights, portfolio_value):
-        # Calculate transaction costs when rebalancing portfolio
-        # Only apply costs to stocks and bonds, not cash (cash moves are cost-free)
         assets_to_charge = ['stocks', 'bonds']
         turnover = sum(abs(new_weights.get(asset, 0) - old_weights.get(asset, 0))
                       for asset in assets_to_charge)
@@ -231,19 +199,12 @@ class PortfolioBacktester:
         return cost
 
     def calculate_portfolio_value(self, weight_schedule, rebalance_dates):
-        # Core portfolio simulation engine
-        # weight_schedule: dict of {date: {'stocks': weight, 'bonds': weight, 'cash': weight}}
-        # Cash earns risk-free rate (assumed 0% for simplicity, but can be adjusted)
-
         portfolio_values = pd.Series(index=self.dates, dtype=float)
         portfolio_values.iloc[0] = self.initial_capital
 
-        # Track current holdings
         stock_shares = 0.0
         bond_shares = 0.0
         cash = self.initial_capital
-
-        # Initial allocation
         first_date = self.dates[0]
         if first_date in weight_schedule:
             weights = weight_schedule[first_date]
@@ -254,21 +215,16 @@ class PortfolioBacktester:
             stock_shares = stock_value / self.stock_prices.iloc[0] if stock_value > 0 else 0.0
             bond_shares = bond_value / self.bond_prices.iloc[0] if bond_value > 0 else 0.0
 
-        # Simulate day by day
         for i in range(1, len(self.dates)):
             date = self.dates[i]
 
-            # Calculate current portfolio value
             current_value = (stock_shares * self.stock_prices.iloc[i] +
                            bond_shares * self.bond_prices.iloc[i] +
                            cash)
 
-            # Check if rebalancing needed
             if date in rebalance_dates:
-                # Get target weights
                 weights = weight_schedule[date]
 
-                # Calculate old weights
                 stock_value_old = stock_shares * self.stock_prices.iloc[i]
                 bond_value_old = bond_shares * self.bond_prices.iloc[i]
                 cash_old = cash
@@ -278,11 +234,9 @@ class PortfolioBacktester:
                     'cash': cash_old / current_value if current_value > 0 else 0
                 }
 
-                # Apply transaction costs (only on stocks and bonds, not cash)
                 transaction_cost = self.apply_transaction_costs(old_weights, weights, current_value)
                 current_value -= transaction_cost
 
-                # Rebalance to target weights
                 target_stock_value = current_value * weights.get('stocks', 0.0)
                 target_bond_value = current_value * weights.get('bonds', 0.0)
                 cash = current_value * weights.get('cash', 0.0)
@@ -290,13 +244,11 @@ class PortfolioBacktester:
                 stock_shares = target_stock_value / self.stock_prices.iloc[i] if target_stock_value > 0 else 0.0
                 bond_shares = target_bond_value / self.bond_prices.iloc[i] if target_bond_value > 0 else 0.0
 
-            # Update portfolio value
             portfolio_values.iloc[i] = current_value
 
         return portfolio_values
 
     def run_buy_stock_and_hold_strategy(self, stock_pct = 1.0, rebalance_freq='yearly'):
-        # Buy and hold strategy with annual rebalancing
         rebalance_dates = self.get_rebalance_dates(rebalance_freq)
         weight_schedule = {date: {'stocks': stock_pct, 'bonds': 0.0}
                           for date in rebalance_dates}
@@ -304,10 +256,8 @@ class PortfolioBacktester:
         return portfolio_values
 
     def run_buy_and_hold_strategy(self, stock_pct=0.6, bond_pct=0.4, rebalance_freq='yearly'):
-        # 60/40 stock/bond benchmark with annual rebalancing
         rebalance_dates = self.get_rebalance_dates(rebalance_freq)
 
-        # Create weight schedule (constant weights, rebalanced periodically)
         weight_schedule = {date: {'stocks': stock_pct, 'bonds': bond_pct}
                           for date in rebalance_dates}
 
@@ -315,7 +265,6 @@ class PortfolioBacktester:
         return portfolio_values
 
     def run_bond_only_strategy(self):
-        # 100% bonds baseline (no rebalancing needed)
         weight_schedule = {self.dates[0]: {'stocks': 0.0, 'bonds': 1.0}}
         rebalance_dates = [self.dates[0]]
 
@@ -323,26 +272,18 @@ class PortfolioBacktester:
         return portfolio_values
 
     def get_weighted_average_regime(self, end_idx, lookback_days):
-        # Calculate weighted average regime over a lookback period
-        # Returns the regime allocation as a weighted blend of regime allocations
-
         start_idx = max(0, end_idx - lookback_days)
         regime_slice = self.regime_predictions[start_idx:end_idx + 1]
 
         if len(regime_slice) == 0:
             return int(self.regime_predictions[end_idx])
 
-        # Count occurrences of each regime
         unique_regimes, counts = np.unique(regime_slice, return_counts=True)
 
-        # Find regime with highest count (most common)
         most_common_idx = np.argmax(counts)
         return int(unique_regimes[most_common_idx])
 
     def get_weighted_regime_allocation(self, end_idx, lookback_days, regime_allocations):
-        # Calculate weighted average allocation based on regime distribution over lookback period
-        # This creates a blended allocation that's a product of weighted average of regime predictions
-
         start_idx = max(0, end_idx - lookback_days)
         regime_slice = self.regime_predictions[start_idx:end_idx + 1]
 
@@ -350,11 +291,9 @@ class PortfolioBacktester:
             regime = int(self.regime_predictions[end_idx])
             return regime_allocations[regime]
 
-        # Count occurrences of each regime and calculate weights
         unique_regimes, counts = np.unique(regime_slice, return_counts=True)
         weights = counts / len(regime_slice)
 
-        # Create weighted average allocation
         weighted_allocation = {'stocks': 0.0, 'bonds': 0.0, 'cash': 0.0}
 
         for regime, weight in zip(unique_regimes, weights):
@@ -365,36 +304,28 @@ class PortfolioBacktester:
         return weighted_allocation
 
     def run_regime_based_strategy(self, regime_allocations, rebalance_freq='regime_change'):
-        # HMM-driven allocation based on regime predictions
-        # regime_allocations: dict mapping regime state to weights
-        # e.g., {0: {'stocks': 0.8, 'bonds': 0.2, 'cash': 0.0}, 1: {'stocks': 0.0, 'bonds': 0.0, 'cash': 1.0}, ...}
-
         if self.regime_predictions is None:
             raise ValueError("regime_predictions required for regime-based strategy")
 
         rebalance_dates = self.get_rebalance_dates(rebalance_freq)
 
-        # Create weight schedule based on regime at each rebalance date
         weight_schedule = {}
 
-        # Define lookback periods for different frequencies
         lookback_map = {
-            'weekly': 5,      # ~5 trading days per week
-            'monthly': 21,    # ~21 trading days per month
-            'quarterly': 63   # ~63 trading days per quarter
+            'weekly': 5,
+            'monthly': 21,
+            'quarterly': 63
         }
 
         for date in rebalance_dates:
             date_idx = self.dates.get_loc(date)
 
-            # For weekly, monthly, quarterly: use weighted average of previous period's regimes
             if rebalance_freq in lookback_map:
                 lookback_days = lookback_map[rebalance_freq]
                 weight_schedule[date] = self.get_weighted_regime_allocation(
                     date_idx, lookback_days, regime_allocations
                 )
             else:
-                # For regime_change and other frequencies: use current regime
                 regime = int(self.regime_predictions[date_idx])
                 weight_schedule[date] = regime_allocations[regime]
 
@@ -402,12 +333,8 @@ class PortfolioBacktester:
         return portfolio_values
 
     def compare_all_strategies(self, regime_allocations):
-        # Run all strategies and compare results
-
         results = {}
         metrics = {}
-
-        # Strategy 1: Buy & Hold 60/40
         results['Buy & Hold 60/40'] = self.run_buy_and_hold_strategy(0.6, 0.4, 'yearly')
         metrics['Buy & Hold 60/40'] = self.metrics_calculator.get_all_metrics(results['Buy & Hold 60/40'])
 

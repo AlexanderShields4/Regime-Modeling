@@ -13,10 +13,8 @@ RAW_DATA_CSV = os.path.join(CACHE_DIR, 'raw_merged_data.csv')
 
 
 def save_raw_data_cache(merged_df, cache_dir=CACHE_DIR):
-    # Create cache directory if it doesn't exist
     os.makedirs(cache_dir, exist_ok=True)
 
-    # Save data as pickle with metadata for fast loading
     cache_path = os.path.join(cache_dir, 'raw_merged_data.pkl')
     with open(cache_path, 'wb') as f:
         pickle.dump({
@@ -29,7 +27,6 @@ def save_raw_data_cache(merged_df, cache_dir=CACHE_DIR):
             }
         }, f)
 
-    # Also save as CSV for human inspection
     csv_path = os.path.join(cache_dir, 'raw_merged_data.csv')
     merged_df.to_csv(csv_path, index=True)
 
@@ -42,97 +39,86 @@ def save_raw_data_cache(merged_df, cache_dir=CACHE_DIR):
 
 def load_raw_data_cache(cache_path=RAW_DATA_CACHE, max_age_hours=24):
     """
-    Load cached data if it exists and is not too old.
-    
+    Load cached data if valid and recent.
+
     Args:
         cache_path: Path to cache file
-        max_age_hours: Maximum age of cache in hours before it's considered stale
-                       Set to None to disable expiry check
-    
+        max_age_hours: Max cache age in hours (None to disable expiry)
+
     Returns:
-        DataFrame if cache is valid, None otherwise
+        DataFrame if valid, None otherwise
     """
-    # Return None if cache doesn't exist
     if not os.path.exists(cache_path):
         print("ℹ No cache found")
         return None
 
-    # Load and check cache age
     with open(cache_path, 'rb') as f:
         cache_data = pickle.load(f)
-    
+
     cache_timestamp = cache_data.get('timestamp', datetime.min)
     cache_age = datetime.now() - cache_timestamp
-    
+
     print(f"ℹ Cache found:")
     print(f"  Created: {cache_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"  Age: {cache_age.total_seconds() / 3600:.1f} hours")
     print(f"  Shape: {cache_data['shape']}")
     if 'date_range' in cache_data:
         print(f"  Date range: {cache_data['date_range']['start']} to {cache_data['date_range']['end']}")
-    
-    # Check if cache is too old (if expiry is enabled)
+
     if max_age_hours is not None and cache_age > timedelta(hours=max_age_hours):
         print(f"⚠ Cache is stale (older than {max_age_hours} hours)")
         return None
-    
+
     print("✓ Using cached data")
     return cache_data['data']
 
 
 def cache_exists(cache_path=RAW_DATA_CACHE):
-    # Check if cache file exists
     return os.path.exists(cache_path)
 
 
 def clear_cache(cache_dir=CACHE_DIR):
-    # Remove entire cache directory if it exists
     if os.path.exists(cache_dir):
         import shutil
         shutil.rmtree(cache_dir)
         print(f"✓ Cache cleared: {cache_dir}")
 
 
-def get_merged_data(join_type='inner', use_cache=True, force_refresh=False, 
+def get_merged_data(join_type='inner', use_cache=True, force_refresh=False,
                     cache_max_age_hours=24):
     """
     Get merged market data with smart caching.
-    
+
     Args:
         join_type: How to merge dataframes ('inner' or 'outer')
         use_cache: Whether to use cached data if available
         force_refresh: If True, bypass cache and fetch fresh data
-        cache_max_age_hours: Maximum cache age in hours (None = never expire)
-    
+        cache_max_age_hours: Max cache age in hours (None = never expire)
+
     Returns:
         DataFrame with merged market data
     """
     print("\n" + "="*60)
     print("LOADING MARKET DATA")
     print("="*60)
-    
-    # Force refresh: clear cache and fetch new data
+
     if force_refresh:
         print("🔄 Force refresh enabled - fetching fresh data...")
         clear_cache()
         use_cache = False
-    
-    # Try to load from cache if enabled
+
     cached_data = None
     if use_cache:
         cached_data = load_raw_data_cache(max_age_hours=cache_max_age_hours)
-    
-    # Return cached data if valid
+
     if cached_data is not None:
         print("="*60 + "\n")
         return cached_data
-    
-    # Fetch fresh data if no valid cache
+
     print("\n📡 Fetching fresh data from sources...")
     stocks_df, indices_df, resources_df, stock_moving_averages_df, \
         indice_moving_averages_df, resource_moving_averages_df = fetch_all_data()
 
-    # Merge all dataframes with prefixes
     print("🔗 Merging dataframes...")
     merged_df = merge_all_dataframes(
         stocks_df, indices_df, resources_df,
@@ -140,15 +126,12 @@ def get_merged_data(join_type='inner', use_cache=True, force_refresh=False,
         resource_moving_averages_df, join_type=join_type
     )
 
-    # Clean missing values
     print("🧹 Cleaning missing values...")
     merged_df = handle_missing_values(merged_df)
 
-    # Save merged data to CSV for inspection
     merged_df.to_csv('merged_data.csv', index=True)
     print("✓ Saved to merged_data.csv")
 
-    # Save to cache for faster future loads
     if use_cache:
         print("\n💾 Saving to cache...")
         save_raw_data_cache(merged_df)
@@ -160,7 +143,6 @@ def get_merged_data(join_type='inner', use_cache=True, force_refresh=False,
 def merge_all_dataframes(stocks_df, indices_df, resources_df,
                          stock_moving_averages_df, indice_moving_averages_df,
                          resource_moving_averages_df, join_type='outer'):
-    # Organize all dataframes with descriptive keys
     df_dict = {
         'stock': stocks_df,
         'index': indices_df,
@@ -170,13 +152,8 @@ def merge_all_dataframes(stocks_df, indices_df, resources_df,
         'resource_ma': resource_moving_averages_df
     }
 
-    # Add prefixes to column names to identify data source
     prefixed_dfs = [df.add_prefix(f'{prefix}_') for prefix, df in df_dict.items()]
-
-    # Concatenate all dataframes horizontally with specified join type
     combined_df = pd.concat(prefixed_dfs, axis=1, join=join_type)
-
-    # Sort by date index for chronological order
     combined_df.sort_index(inplace=True)
 
     return combined_df
@@ -185,29 +162,21 @@ def merge_all_dataframes(stocks_df, indices_df, resources_df,
 def handle_missing_values(df):
     df_clean = df.copy()
 
-    # Remove columns with more than 50% missing data
     nan_fraction = df_clean.isnull().sum() / len(df_clean)
     cols_to_keep = nan_fraction[nan_fraction <= 0.5].index
     df_clean = df_clean[cols_to_keep]
 
-    # Fill missing values using forward fill only (no backward fill to avoid data leakage)
-    # Forward fill uses past data, which is safe for time series
     ma_cols = [col for col in df_clean.columns if '_ma_' in col]
     if ma_cols:
         df_clean[ma_cols] = df_clean[ma_cols].fillna(method='ffill')
 
-    # Fill price columns with forward fill only
     price_cols = [col for col in df_clean.columns if '_ma_' not in col]
     if price_cols:
         df_clean[price_cols] = df_clean[price_cols].fillna(method='ffill')
 
-    # Drop any rows still containing NaN values (safer than interpolation which uses future data)
     df_clean = df_clean.dropna(axis=0)
 
     return df_clean
-
-
-# ... rest of your functions remain the same ...
 
 def calculate_returns(df, method='log'):
     if method == 'log':
@@ -303,14 +272,13 @@ def get_enhanced_features_for_model(join_type='inner', n_stocks=15, n_indices=5,
                                    force_refresh=False, cache_max_age_hours=24):
     """
     Get enhanced features with smart caching.
-    
+
     Args:
-        force_refresh: If True, fetch fresh data
-        cache_max_age_hours: Maximum cache age (24 = daily refresh, None = never expire)
+        force_refresh: Fetch fresh data
+        cache_max_age_hours: Max cache age (24 = daily refresh, None = never expire)
     """
-    # Load with cache control
     raw_data = get_merged_data(
-        join_type=join_type, 
+        join_type=join_type,
         force_refresh=force_refresh,
         cache_max_age_hours=cache_max_age_hours
     )

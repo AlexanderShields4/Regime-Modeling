@@ -1,0 +1,79 @@
+{
+  "transition_probabilities": {
+    "Bear": {
+      "Bear": 0.8469387755102041,
+      "Bull": 0.04308093994778068,
+      "Sideways": 0.10290237467018469
+    },
+    "Bull": {
+      "Bear": 0.10204081632653061,
+      "Bull": 0.924934725848564,
+      "Sideways": 0.12137203166226913
+    },
+    "Sideways": {
+      "Bear": 0.05102040816326531,
+      "Bull": 0.03198433420365535,
+      "Sideways": 0.7757255936675461
+    }
+  },
+  "transition_counts": {
+    "Bear": {
+      "Bear": 581,
+      "Bull": 66,
+      "Sideways": 39
+    },
+    "Bull": {
+      "Bear": 70,
+      "Bull": 1417,
+      "Sideways": 46
+    },
+    "Sideways": {
+      "Bear": 35,
+      "Bull": 49,
+      "Sideways": 294
+    }
+  },
+  "regime_statistics": [
+    {
+      "Regime": "Bear",
+      "Total Periods": 686,
+      "Frequency (%)": 26.40492686682063,
+      "Avg Duration (days)": 6.533333333333333,
+      "Max Duration (days)": 27,
+      "Number of Occurrences": 105
+    },
+    {
+      "Regime": "Bull",
+      "Total Periods": 1533,
+      "Frequency (%)": 59.00692840646651,
+      "Avg Duration (days)": 13.21551724137931,
+      "Max Duration (days)": 80,
+      "Number of Occurrences": 116
+    },
+    {
+      "Regime": "Sideways",
+      "Total Periods": 379,
+      "Frequency (%)": 14.588144726712857,
+      "Avg Duration (days)": 4.458823529411765,
+      "Max Duration (days)": 34,
+      "Number of Occurrences": 85
+    }
+  ],
+  "persistence_metrics": [
+    {
+      "Regime": "Bear",
+      "Persistence (%)": 84.6938775510204,
+      "Expected Duration (days)": 6.533333333333336
+    },
+    {
+      "Regime": "Bull",
+      "Persistence (%)": 92.49347258485639,
+      "Expected Duration (days)": 13.32173913043478
+    },
+    {
+      "Regime": "Sideways",
+      "Persistence (%)": 77.57255936675462,
+      "Expected Duration (days)": 4.458823529411764
+    }
+  ]
+}
