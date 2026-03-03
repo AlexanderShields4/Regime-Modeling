@@ -1,5 +1,8 @@
 .venv
 __pycache__/
 .vscode
-env 
+env
 backtest_results
+*.egg-info/
+dist/
+build/

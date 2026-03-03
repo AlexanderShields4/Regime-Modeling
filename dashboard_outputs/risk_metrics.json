@@ -1,23 +1,32 @@
 {
-  "Sideways": {
-    "Average Return": 0.00014513759380273817,
-    "Volatility": 0.013513613140301958,
-    "Sharpe Ratio": 0.07817972764548084,
-    "Max Drawdown": -0.3423976628847565,
-    "Periods": 864
-  },
   "Bull": {
-    "Average Return": 0.0009971227102066407,
-    "Volatility": 0.007423804880317257,
-    "Sharpe Ratio": 1.964132309817782,
-    "Max Drawdown": -0.11059681528686743,
-    "Periods": 1567
+    "count": 637,
+    "mean_daily_return": 0.001126,
+    "annualized_return": 0.2836,
+    "daily_volatility": 0.006804,
+    "annualized_volatility": 0.108,
+    "worst_day": -0.023537,
+    "best_day": 0.020611,
+    "sharpe": 2.6261
+  },
+  "Sideways": {
+    "count": 650,
+    "mean_daily_return": 0.00056,
+    "annualized_return": 0.1411,
+    "daily_volatility": 0.012038,
+    "annualized_volatility": 0.1911,
+    "worst_day": -0.042659,
+    "best_day": 0.037137,
+    "sharpe": 0.7383
   },
   "Bear": {
-    "Average Return": -0.0007300773488763094,
-    "Volatility": 0.03335416333621415,
-    "Sharpe Ratio": -0.38487296977362395,
-    "Max Drawdown": -0.37277691325633133,
-    "Periods": 167
+    "count": 68,
+    "mean_daily_return": -0.001519,
+    "annualized_return": -0.3829,
+    "daily_volatility": 0.023668,
+    "annualized_volatility": 0.3757,
+    "worst_day": -0.070596,
+    "best_day": 0.089314,
+    "sharpe": -1.019
   }
 }

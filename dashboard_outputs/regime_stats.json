@@ -1,11 +1,11 @@
 {
-  "Total Periods": 2598,
-  "Bull Periods": 1567,
-  "Bear Periods": 167,
-  "Sideways Periods": 864,
-  "Regime Changes": 292,
-  "Average Duration": 8.866894197952218,
-  "Bull %": "60.3%",
-  "Bear %": "6.4%",
-  "Sideways %": "33.3%"
+  "Total Periods": 1355,
+  "Bull Periods": 637,
+  "Bear Periods": 68,
+  "Sideways Periods": 650,
+  "Regime Changes": 232,
+  "Average Duration": 5.815450643776824,
+  "Bull %": "47.0%",
+  "Bear %": "5.0%",
+  "Sideways %": "48.0%"
 }

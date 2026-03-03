@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "regime-modeling"
+version = "0.1.0"
+description = "Adaptive regime-switching investment strategy using Hidden Markov Models"
+requires-python = ">=3.12"
+dependencies = [
+    "yfinance==0.2.66",
+    "pandas==2.3.3",
+    "hmmlearn==0.3.3",
+    "numpy==2.4.2",
+    "plotly==6.5.2",
+    "matplotlib==3.10.8",
+    "scikit-learn==1.8.0",
+    "scipy==1.17.1",
+    "tqdm==4.67.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
